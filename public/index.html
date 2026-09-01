@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="sl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#08091a">
+<title>CKViz - kviz za pare</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💘</text></svg>">
+<link rel="stylesheet" href="/css/app.css">
+<style>
+  .hero { max-width: 720px; margin: 0 auto; padding: 40px 20px 60px; }
+  .modes { display: grid; gap: 10px; margin-top: 18px; }
+  .mode-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-radius: 14px; background: rgba(255,255,255,.05); border: 1px solid var(--line); }
+  .mode-row .e { font-size: 24px; line-height: 1.1; }
+  .code-input { text-transform: uppercase; letter-spacing: .5em; text-align: center; font-size: 30px; font-weight: 900; padding: 18px 10px; }
+</style>
+</head>
+<body>
+<div class="hero">
+  <div class="brand" style="justify-content:center; margin-bottom:26px">
+    <div class="brand-mark">💘</div>
+    <div>
+      <div class="brand-name">CKViz</div>
+      <div class="brand-sub">Kviz za pare</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:26px">Pridruži se igri</h1>
+    <p class="muted small" style="margin-top:8px">Vpiši kodo z velikega zaslona.</p>
+    <form id="joinForm" class="stack" style="margin-top:16px">
+      <input class="code-input" id="code" name="code" maxlength="4" autocomplete="off"
+             autocapitalize="characters" spellcheck="false" placeholder="ABCD" required>
+      <button class="btn primary big" type="submit">Naprej</button>
+    </form>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div class="tiny">Kako deluje</div>
+    <p style="margin-top:10px; line-height:1.55">
+      Vsak igralec odgovarja na svojem telefonu. Pri vsakem vprašanju odgovoriš
+      <b>zase</b> in <b>napoveš, kaj je izbral tvoj par</b>. Točke prinese znanje,
+      še več pa to, kako dobro se poznata.
+    </p>
+    <div class="modes">
+      <div class="mode-row"><div class="e">🧠</div><div><b>Znanje</b><div class="muted small">En pravilen odgovor - z vložkom x1, x2 ali x3.</div></div></div>
+      <div class="mode-row"><div class="e">✅</div><div><b>Več pravilnih</b><div class="muted small">Izbereš vse, kar drži. Napačna izbira odnese točke.</div></div></div>
+      <div class="mode-row"><div class="e">🔗</div><div><b>Sinhronizacija</b><div class="muted small">Ni pravilnega odgovora - izberita isto, brez pogovora.</div></div></div>
+      <div class="mode-row"><div class="e">💘</div><div><b>Ali me poznaš?</b><div class="muted small">Odgovoriš zase, partner ugiba. Največ točk v igri.</div></div></div>
+    </div>
+  </div>
+
+  <div class="center" style="margin-top:24px">
+    <a class="btn ghost" href="/host.html">Odpri velik zaslon (na računalniku)</a>
+  </div>
+</div>
+
+<script type="module">
+  import { el } from '/js/common.js';
+  const input = el('#code');
+  input.addEventListener('input', () => {
+    input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+  });
+  el('#joinForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (input.value.length === 4) location.href = `/p/${input.value}`;
+  });
+</script>
+</body>
+</html>
