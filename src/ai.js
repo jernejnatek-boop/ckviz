@@ -19,7 +19,30 @@ function getClient() {
   return client;
 }
 
-const QUESTION_SCHEMA = {
+// Strukturiran izhod Claude API podpira samo osnovno podmnožico JSON Sheme:
+// tipe, enum, const, anyOf, allOf, $ref in additionalProperties: false.
+// Omejitve dolžin in števil (minItems, maxItems, minimum, minLength, pattern ...)
+// vrnejo 400. Zato jih tu ni - "natanko štiri možnosti" zahtevamo v navodilu,
+// preverimo pa v normalize().
+const UNSUPPORTED_KEYWORDS = [
+  'minItems', 'maxItems', 'uniqueItems', 'contains', 'minContains', 'maxContains',
+  'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf',
+  'minLength', 'maxLength', 'pattern', 'minProperties', 'maxProperties',
+];
+
+/** Varovalo: iz sheme odstrani vse, česar API ne sprejme. */
+function sanitizeSchema(node) {
+  if (Array.isArray(node)) return node.map(sanitizeSchema);
+  if (!node || typeof node !== 'object') return node;
+  const out = {};
+  for (const [key, value] of Object.entries(node)) {
+    if (UNSUPPORTED_KEYWORDS.includes(key)) continue;
+    out[key] = sanitizeSchema(value);
+  }
+  return out;
+}
+
+const QUESTION_SCHEMA = sanitizeSchema({
   type: 'object',
   properties: {
     questions: {
@@ -30,7 +53,11 @@ const QUESTION_SCHEMA = {
           mode: { type: 'string', enum: MODE_IDS },
           category: { type: 'string' },
           text: { type: 'string' },
-          options: { type: 'array', items: { type: 'string' }, minItems: 4, maxItems: 4 },
+          options: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Natanko štiri možnosti.',
+          },
           correct: {
             type: 'array',
             items: { type: 'integer', enum: [0, 1, 2, 3] },
@@ -45,7 +72,7 @@ const QUESTION_SCHEMA = {
   },
   required: ['questions'],
   additionalProperties: false,
-};
+});
 
 const SYSTEM = `Si avtor vprašanj za CKViz - kviz za pare, kjer vsak igralec odgovarja na svojem telefonu, rezultati pa se prikazujejo na velikem zaslonu.
 
@@ -79,7 +106,11 @@ Ton: ${tone}
 Uporabi samo te načine, čim bolj enakomerno premešane:
 ${mix}
 
-Vprašanja naj sledijo tematiki tudi v načinih sync in know - če je tema npr. "potovanja", naj bodo osebna vprašanja o potovanjih.${avoidLine}`;
+Vprašanja naj sledijo tematiki tudi v načinih sync in know - če je tema npr. "potovanja", naj bodo osebna vprašanja o potovanjih.${avoidLine}
+
+Odgovori IZKLJUČNO z JSON objektom v tej obliki, brez besedila okoli njega:
+{"questions":[{"mode":"trivia","category":"...","text":"...","options":["...","...","...","..."],"correct":[0],"explanation":"..."}]}
+Polje "options" ima vedno natanko štiri elemente.`;
 }
 
 function normalize(raw, allowedModes) {
@@ -117,6 +148,18 @@ function normalize(raw, allowedModes) {
   return out;
 }
 
+/** Iz napake SDK potegne berljivo sporočilo namesto celotnega JSON telesa. */
+function apiMessage(err) {
+  const inner = err?.error?.error?.message || err?.error?.message;
+  return String(inner || err?.message || err).replace(/\s+/g, ' ').slice(0, 180);
+}
+
+/** Ali gre za 400, ki se pritožuje nad shemo (ne nad vsebino zahteve)? */
+function isSchemaError(err) {
+  const msg = String(err?.message || '');
+  return err?.status === 400 && /output_config|schema/i.test(msg);
+}
+
 function extractJson(message) {
   const text = (message.content || [])
     .filter((b) => b.type === 'text')
@@ -148,21 +191,35 @@ export async function generateQuestions({
   const useModes = allowed.length ? allowed : MODE_IDS;
   const c = getClient();
 
-  const request = {
+  const base = {
     max_tokens: 16000,
     system: SYSTEM,
     messages: [{ role: 'user', content: buildPrompt({ theme, count, difficulty, modes: useModes, tone, avoid }) }],
-    output_config: {
-      effort: EFFORT,
-      format: { type: 'json_schema', schema: QUESTION_SCHEMA },
-    },
   };
+  const withSchema = {
+    ...base,
+    output_config: { effort: EFFORT, format: { type: 'json_schema', schema: QUESTION_SCHEMA } },
+  };
+  const withoutSchema = { ...base, output_config: { effort: EFFORT } };
 
+  let request = withSchema;
   let message;
   try {
     message = await c.messages.create({ ...request, model: MODEL });
   } catch (err) {
-    throw new Error(`Klic Claude API ni uspel: ${err?.message || err}`);
+    // Če strežnik zavrne samo shemo, vprašanja vseeno dobimo - obliko zahteva
+    // že navodilo, pravilnost pa preveri normalize().
+    if (isSchemaError(err)) {
+      console.warn(`[ai] strežnik je zavrnil JSON shemo (${apiMessage(err)}) - nadaljujem brez nje.`);
+      request = withoutSchema;
+      try {
+        message = await c.messages.create({ ...request, model: MODEL });
+      } catch (err2) {
+        throw new Error(`Klic Claude API ni uspel: ${apiMessage(err2)}`);
+      }
+    } else {
+      throw new Error(`Klic Claude API ni uspel: ${apiMessage(err)}`);
+    }
   }
 
   // Varnostni klasifikator lahko zavrne zahtevo - takrat poskusimo z drugim modelom.
