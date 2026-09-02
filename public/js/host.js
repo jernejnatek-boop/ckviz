@@ -21,8 +21,9 @@ const setup = store('ckviz:setup') || {
   difficulty: 'srednja',
   tone: 'sproščen in duhovit',
   timeLimit: 30,
+  openTimeLimit: 75,
   hotRound: true,
-  modes: ['trivia', 'multi', 'sync', 'know'],
+  modes: ['trivia', 'multi', 'sync', 'know', 'open'],
 };
 
 fetch('/api/info')
@@ -45,7 +46,7 @@ const wire = new Wire({
       }
       if (/seje ni več/i.test(msg.message)) {
         store('ckviz:host', null);
-        wire.send({ t: 'host:create', password, settings: { timeLimit: setup.timeLimit, theme: setup.theme, hotRound: setup.hotRound } });
+        wire.send({ t: 'host:create', password, settings: { timeLimit: setup.timeLimit, openTimeLimit: setup.openTimeLimit, theme: setup.theme, hotRound: setup.hotRound } });
         return;
       }
       return toast(msg.message, 'err');
@@ -91,7 +92,7 @@ function maybeOpen() {
 function openSession() {
   const saved = store('ckviz:host');
   if (saved?.code) wire.send({ t: 'host:resume', code: saved.code, hostToken: saved.hostToken, password });
-  else wire.send({ t: 'host:create', password, settings: { timeLimit: setup.timeLimit, theme: setup.theme, hotRound: setup.hotRound } });
+  else wire.send({ t: 'host:create', password, settings: { timeLimit: setup.timeLimit, openTimeLimit: setup.openTimeLimit, theme: setup.theme, hotRound: setup.hotRound } });
 }
 
 function celebrate(s) {
@@ -111,6 +112,7 @@ function render() {
   }
   if (state.phase === 'lobby') { app.append(viewLobby()); controlsLobby(); }
   else if (state.phase === 'question') { app.append(viewQuestion()); controlsQuestion(); }
+  else if (state.phase === 'judging') { app.append(viewJudging()); }
   else if (state.phase === 'reveal') { app.append(viewReveal()); controlsReveal(); }
   else if (state.phase === 'ended') { app.append(viewEnd()); controlsEnd(); }
 }
@@ -199,11 +201,18 @@ function viewLobby() {
       field('Št. vprašanj', countInput()),
       field('Zahtevnost', select(['lahka', 'srednja', 'težka', 'brutalna'], setup.difficulty, (v) => { setup.difficulty = v; store('ckviz:setup', setup); })),
       field('Ton', select(['sproščen in duhovit', 'romantičen', 'nagajiv', 'resen in poučen'], setup.tone, (v) => { setup.tone = v; store('ckviz:setup', setup); })),
-      field('Čas na vprašanje (s)', h('input', {
+      field('Čas: izbirna (s)', h('input', {
         type: 'number', min: '10', max: '120', value: setup.timeLimit,
         oninput: (e) => {
           setup.timeLimit = Number(e.target.value); store('ckviz:setup', setup);
           wire.send({ t: 'host:settings', settings: { timeLimit: setup.timeLimit } });
+        },
+      })),
+      field('Čas: opisna ✍️ (s)', h('input', {
+        type: 'number', min: '20', max: '300', value: setup.openTimeLimit,
+        oninput: (e) => {
+          setup.openTimeLimit = Number(e.target.value); store('ckviz:setup', setup);
+          wire.send({ t: 'host:settings', settings: { openTimeLimit: setup.openTimeLimit } });
         },
       })),
       field('Vroči krog na koncu', h('button', {
@@ -218,7 +227,12 @@ function viewLobby() {
       h('div', { class: 'tiny', style: 'margin-bottom:8px' }, 'Načini v tem krogu'),
       h('div', { class: 'mode-toggle' },
         modeBtn('trivia', 'Znanje', '🧠'), modeBtn('multi', 'Več pravilnih', '✅'),
-        modeBtn('sync', 'Sinhronizacija', '🔗'), modeBtn('know', 'Ali me poznaš?', '💘'))),
+        modeBtn('sync', 'Sinhronizacija', '🔗'), modeBtn('know', 'Ali me poznaš?', '💘'),
+        modeBtn('open', 'Z besedami', '✍️'))),
+    setup.modes.includes('open') && !info.ai
+      ? h('p', { class: 'small', style: 'margin-top:10px; color:var(--amber)' },
+          'Način "Z besedami" brez ključa deluje, a ujemanje oceni preprost izračun namesto Clauda.')
+      : null,
     h('div', { class: 'row', style: 'margin-top:16px; flex-wrap:wrap' },
       h('button', {
         class: 'btn primary', disabled: state.generating,
@@ -258,7 +272,9 @@ function viewLobby() {
         : h('p', { class: 'muted' }, 'Še ni vprašanj. Vpiši tematiko in klikni "Ustvari vprašanja".')));
 
   return h('div', {},
-    header(h('span', { class: 'chip' }, `🕒 ${state.settings.timeLimit} s`)),
+    header(h('div', { class: 'row', style: 'gap:8px' },
+      h('span', { class: 'chip' }, `🕒 ${state.settings.timeLimit} s`),
+      h('span', { class: 'chip' }, `✍️ ${state.settings.openTimeLimit} s`))),
     h('div', { class: 'grid cols-2' }, joinCard, players),
     h('div', { class: 'grid cols-2', style: 'margin-top:18px' }, gen, preview),
     h('div', { class: 'grid cols-2', style: 'margin-top:18px' }, viewLibrary(), viewHistory()));
@@ -445,7 +461,7 @@ function select(options, value, onchange) {
 }
 
 function modeName(m) {
-  return { trivia: '🧠 Znanje', multi: '✅ Več pravilnih', sync: '🔗 Sinhro', know: '💘 Poznaš?' }[m] || m;
+  return { trivia: '🧠 Znanje', multi: '✅ Več pravilnih', sync: '🔗 Sinhro', know: '💘 Poznaš?', open: '✍️ Z besedami' }[m] || m;
 }
 
 // ---------- med vprašanjem ----------
@@ -463,9 +479,15 @@ function viewQuestion() {
         q.weight > 1 ? h('span', { class: 'chip hot' }, `🔥 x${q.weight} točke`) : null),
       h('span', { class: 'muted' }, `${q.index + 1} / ${state.questionCount}`)),
     h('h1', { class: 'qtext', style: 'margin-top:22px' }, q.text),
-    h('div', { class: 'options', style: 'margin-top:28px' },
-      q.options.map((text, i) => h('div', { class: `opt opt-big i${i}` },
-        h('span', { class: 'glyph' }, OPT_GLYPHS[i]), h('span', {}, text)))));
+    q.open
+      ? h('div', { class: 'card', style: 'margin-top:28px; background:rgba(255,255,255,.04); text-align:center' },
+          h('div', { style: 'font-size:40px' }, '✍️'),
+          h('p', { style: 'margin-top:12px; font-size:19px; font-weight:700' }, 'Vsak piše svoj odgovor na telefon'),
+          h('p', { class: 'muted', style: 'margin-top:8px' },
+            'Točke prinese ujemanje pomena znotraj para, ne pravilnost.'))
+      : h('div', { class: 'options', style: 'margin-top:28px' },
+          q.options.map((text, i) => h('div', { class: `opt opt-big i${i}` },
+            h('span', { class: 'glyph' }, OPT_GLYPHS[i]), h('span', {}, text)))));
 
   const right = h('div', { class: 'stack' },
     h('div', { class: 'card center' },
@@ -481,6 +503,17 @@ function viewQuestion() {
       h('div', { class: 'pill-list' }, state.couples.slice(0, 6).map((c, i) => rankRow(c, i)))));
 
   return h('div', {}, header(), h('div', { class: 'grid cols-2' }, left, right));
+}
+
+function viewJudging() {
+  const q = state.question;
+  return h('div', {}, header(),
+    h('div', { class: 'card center', style: 'padding:60px 20px' },
+      h('div', { style: 'font-size:64px' }, '🔮'),
+      h('h1', { style: 'font-size:clamp(24px,3vw,40px); margin-top:18px' }, 'Presojam odgovore'),
+      h('p', { class: 'muted', style: 'margin-top:12px; font-size:17px' },
+        'Gledam, ali para mislita isto - tudi če sta napisala z drugimi besedami.'),
+      q ? h('p', { class: 'pulse', style: 'margin-top:26px; font-size:20px; font-weight:700' }, q.text) : null));
 }
 
 function ring() {
@@ -519,6 +552,8 @@ function viewReveal() {
   if (!r) return h('div', { class: 'card' }, 'Računam ...');
 
   const total = Math.max(1, r.perPlayer.filter((p) => p.choice != null).length);
+
+  if (q.mode === 'open') return viewRevealOpen(r, q);
 
   const left = h('div', { class: 'card' },
     h('div', { class: 'row', style: 'gap:10px' },
@@ -565,6 +600,57 @@ function viewReveal() {
       h('div', { class: 'pill-list' }, state.couples.map((c, i) => rankRow(c, i, r)))));
 
   return h('div', {}, header(), h('div', { class: 'grid cols-2' }, left, right));
+}
+
+/** Razkritje opisnega vprašanja: odgovori para drug ob drugem in odstotek ujemanja. */
+function viewRevealOpen(r, q) {
+  const cards = r.pairs.map((p) => {
+    const sim = p.a?.similarity ?? p.b?.similarity ?? 0;
+    const note = p.a?.note || p.b?.note || '';
+    return h('div', { class: `pair-card ${sim >= 70 ? 'match' : ''}`, style: 'padding:18px' },
+      h('div', { class: 'row spread' },
+        h('b', { style: 'font-size:18px' }, p.name),
+        h('span', { style: 'font-weight:900; font-size:22px' }, `${sim} %`)),
+      h('div', { class: 'bar-track', style: 'height:10px; margin:10px 0 14px' },
+        h('div', { class: 'bar-fill', style: `width:${sim}%; background:linear-gradient(90deg,var(--violet),var(--pink))` })),
+      h('div', { class: 'open-two' },
+        h('div', { class: 'open-ans' },
+          h('div', { class: 'who' }, `${p.a?.emoji || ''} ${p.a?.name || ''}`),
+          h('p', {}, p.a?.text || '—')),
+        h('div', { class: 'open-ans' },
+          h('div', { class: 'who' }, `${p.b?.emoji || ''} ${p.b?.name || ''}`),
+          h('p', {}, p.b?.text || '—'))),
+      note ? h('p', { class: 'muted', style: 'margin-top:12px; font-size:14px' }, `💬 ${note}`) : null,
+      h('div', { style: 'margin-top:10px; text-align:right; font-weight:800; color:var(--ok)' }, `+${p.gain}`));
+  });
+
+  const solos = r.perPlayer.filter((x) => !x.partnerId);
+
+  return h('div', {}, header(),
+    h('div', { class: 'grid cols-2' },
+      h('div', { class: 'card' },
+        h('div', { class: 'row', style: 'gap:10px' },
+          h('span', { class: 'chip mode-know' }, modeName(q.mode)),
+          q.weight > 1 ? h('span', { class: 'chip hot' }, `🔥 x${q.weight}`) : null,
+          h('span', { class: 'muted' }, `${q.index + 1} / ${state.questionCount}`)),
+        h('h1', { class: 'qtext', style: 'margin-top:18px; font-size:clamp(22px,2.4vw,36px)' }, q.text),
+        h('div', { class: 'stack', style: 'margin-top:24px' }, cards.length ? cards
+          : h('p', { class: 'muted' }, 'Ni parov - opisna vprašanja zaživijo šele v paru.')),
+        solos.length ? h('div', { style: 'margin-top:18px' },
+          h('div', { class: 'tiny', style: 'margin-bottom:8px' }, 'Brez para'),
+          h('div', { class: 'stack' }, solos.map((sp) => h('div', { class: 'pair-card' },
+            h('div', { class: 'who', style: 'font-size:11px; color:var(--muted)' }, `${sp.emoji} ${sp.name}`),
+            h('p', { style: 'margin-top:6px' }, sp.text || '—'))))) : null),
+      h('div', { class: 'card' },
+        h('div', { class: 'tiny', style: 'margin-bottom:12px' }, 'Lestvica'),
+        h('div', { class: 'pill-list' }, state.couples.map((c, i) => rankRow(c, i, r))))));
+}
+
+/** Povprečno ujemanje pri opisnem vprašanju - po parih, ne po igralcih. */
+function avgSimilarity(hRow) {
+  const sims = (hRow.pairs || []).map((p) => p.a?.similarity).filter((v) => v != null);
+  if (!sims.length) return 0;
+  return Math.round(sims.reduce((a, b) => a + b, 0) / sims.length);
 }
 
 function answerLabel(q, choice) {
@@ -649,7 +735,9 @@ function viewEnd() {
         h('div', { style: 'font-weight:700' }, q.text),
         correctIdx.length
           ? h('div', { class: 'muted', style: 'margin-top:6px' }, `Pravilno: ${correctIdx.map((i) => q.options[i]).join(', ')} · ${hits}/${answeredN} zadetkov`)
-          : h('div', { class: 'muted', style: 'margin-top:6px' }, `${matches} ${matches === 1 ? 'par se je ujel' : 'parov se je ujelo'}`));
+          : q.mode === 'open'
+            ? h('div', { class: 'muted', style: 'margin-top:6px' }, `Povprečno ujemanje ${avgSimilarity(hRow)} %`)
+            : h('div', { class: 'muted', style: 'margin-top:6px' }, `${matches} ${matches === 1 ? 'par se je ujel' : 'parov se je ujelo'}`));
     })));
 
   return h('div', {}, header(), h('div', { class: 'grid cols-2' }, podium, h('div', { class: 'stack' }, awards, chemCard)),
@@ -691,6 +779,7 @@ function controlsEnd() {
 
 document.addEventListener('keydown', (e) => {
   if (e.target.matches('input, select, textarea')) return;
+  if (state?.phase === 'judging') return; // med presojo ni prehodov
   if (e.key === ' ' || e.key === 'ArrowRight') {
     e.preventDefault();
     if (state?.phase === 'question') wire.send({ t: 'host:reveal' });

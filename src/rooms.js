@@ -1,7 +1,8 @@
 // Stanje sobe in potek igre. Vse je v pomnilniku - do 10 igralcev na sobo.
 
 import { randomUUID } from 'node:crypto';
-import { MODES, DEFAULT_SETTINGS, MAX_PLAYERS, WEIGHT_LEVELS, POINTS, scoreSubmission, isCorrect, sameAnswer, questionWeight } from './game.js';
+import { MODES, DEFAULT_SETTINGS, MAX_PLAYERS, WEIGHT_LEVELS, POINTS, scoreSubmission, isCorrect, sameAnswer, questionWeight, timeLimitFor } from './game.js';
+import { judgeOpenAnswers } from './ai.js';
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // brez I, O, 0, 1
 const REVEAL_DELAY_MS = 1200;
@@ -39,6 +40,17 @@ function emptyStats() {
     msCount: 0,
     confidenceTotal: 0,
     confidenceCount: 0,
+    // za nagrade
+    openSimTotal: 0,
+    openSimCount: 0,
+    openSimBest: 0,
+    lone: 0,          // edini, ki je izbral svoj odgovor
+    lastSecond: 0,    // oddano v zadnji petini časa
+    riskyMiss: 0,     // vložek x3 in zgrešeno
+    riskyHit: 0,      // vložek x3 in zadeto
+    bestRank: null,
+    worstRank: null,
+    words: 0,         // skupno število napisanih besed
   };
 }
 
@@ -60,6 +72,7 @@ export class Room {
     this.generating = false;
     this.genError = null;
     this.genProgress = null;
+    this.revealing = false;
     this.onChange = onChange || (() => {});
     this.touched = Date.now();
   }
@@ -245,6 +258,11 @@ export class Room {
     return this.index >= 0 ? this.questions[this.index] || null : null;
   }
 
+  /** Čas za trenutno vprašanje - opisna imajo svojega. */
+  timeLimit(question = this.current) {
+    return question ? timeLimitFor(question, this.settings) : this.settings.timeLimit;
+  }
+
   start() {
     if (!this.questions.length) throw new Error('Najprej pripravi vprašanja.');
     if (this.players.size < 1) throw new Error('Nihče še ni v sobi.');
@@ -260,13 +278,16 @@ export class Room {
   }
 
   next() {
+    // Med presojo opisnih odgovorov ne smemo naprej - sicer bi vprašanje
+    // izpadlo iz zgodovine in nihče ne bi dobil točk zanj.
+    if (this.phase === 'judging') throw new Error('Počakaj, presoja odgovorov še teče.');
     this.clearTimers();
     if (this.index + 1 >= this.questions.length) return this.end();
     this.index += 1;
     this.phase = 'question';
     this.questionStartedAt = Date.now();
     this.submissions.set(this.index, new Map());
-    this.timer = setTimeout(() => this.reveal(), this.settings.timeLimit * 1000 + 500);
+    this.timer = setTimeout(() => this.reveal(), this.timeLimit() * 1000 + 500);
     this.changed();
   }
 
@@ -285,6 +306,11 @@ export class Room {
     const def = MODES[q.mode];
     const map = this.submissions.get(this.index);
 
+    let text = null;
+    if (def.open) {
+      text = String(payload.text || '').trim().slice(0, 400);
+    }
+
     let choice = payload.choice;
     if (def.multi) {
       choice = Array.isArray(choice) ? [...new Set(choice.filter((i) => Number.isInteger(i) && i >= 0 && i < q.options.length))].sort() : [];
@@ -302,7 +328,8 @@ export class Room {
 
     const existing = map.get(playerId);
     map.set(playerId, {
-      choice,
+      choice: def.open ? null : choice,
+      text,
       predict,
       confidence,
       ms: existing?.ms ?? Date.now() - this.questionStartedAt,
@@ -330,13 +357,44 @@ export class Room {
     return [...map.values()].filter((s) => s.locked).length;
   }
 
-  reveal() {
-    if (this.phase !== 'question') return;
+  async reveal() {
+    if (this.phase !== 'question' || this.revealing) return;
+    this.revealing = true;
     this.clearTimers();
     const q = this.current;
     const map = this.submissions.get(this.index) || new Map();
     const def = MODES[q.mode];
 
+    // Opisna vprašanja mora najprej presoditi AI - vmes na zaslonu teče
+    // "presojam", da ni videti, kot da se je igra ustavila.
+    if (def.open) {
+      this.phase = 'judging';
+      this.changed();
+      try {
+        const pairs = this.couples().filter((c) => !c.solo).map((c) => ({
+          id: c.id,
+          a: { name: c.members[0].name, text: map.get(c.members[0].id)?.text || '' },
+          b: { name: c.members[1].name, text: map.get(c.members[1].id)?.text || '' },
+        }));
+        const verdicts = await judgeOpenAnswers({ question: q.text, pairs });
+        const byId = new Map(verdicts.map((v) => [v.id, v]));
+        for (const c of this.couples()) {
+          const v = byId.get(c.id);
+          if (!v) continue;
+          for (const m of c.members) {
+            const sub = map.get(m.id);
+            if (sub) { sub.similarity = v.similarity; sub.note = v.note; sub.offline = Boolean(v.offline); }
+          }
+        }
+      } catch (err) {
+        console.warn(`[igra] presoja ni uspela: ${err.message}`);
+      }
+      // Med presojo se je lahko soba že premaknila naprej.
+      if (this.phase !== 'judging') { this.revealing = false; return; }
+      this.phase = 'question'; // da spodnji tok teče enako kot pri ostalih
+    }
+
+    const limit = this.timeLimit(q);
     const perPlayer = [];
     for (const p of this.players.values()) {
       const sub = map.get(p.id) || null;
@@ -347,7 +405,7 @@ export class Room {
         submission: sub,
         partnerSubmission: partnerSub,
         hasPartner: Boolean(partner),
-        timeLimit: this.settings.timeLimit,
+        timeLimit: limit,
       });
 
       p.score = Math.max(0, p.score + total);
@@ -363,6 +421,18 @@ export class Room {
         p.stats.factQuestions += 1;
         if (sub?.choice != null && isCorrect(q, sub.choice)) p.stats.correct += 1;
       }
+      if (def.open && sub?.text) {
+        const sim = Number(sub.similarity) || 0;
+        p.stats.openSimTotal += sim;
+        p.stats.openSimCount += 1;
+        p.stats.openSimBest = Math.max(p.stats.openSimBest, sim);
+        p.stats.words += sub.text.split(/\s+/).filter(Boolean).length;
+      }
+      if (def.confidence && sub?.choice != null && sub.confidence === 3) {
+        if (isCorrect(q, sub.choice)) p.stats.riskyHit += 1; else p.stats.riskyMiss += 1;
+      }
+      if (sub?.locked && sub.ms != null && sub.ms > limit * 1000 * 0.8) p.stats.lastSecond += 1;
+
       if (def.predicts && partner && sub?.predict != null && partnerSub?.choice != null) {
         p.stats.predictOpps += 1;
         if (sameAnswer(q, sub.predict, partnerSub.choice)) p.stats.predictHits += 1;
@@ -376,6 +446,10 @@ export class Room {
         id: p.id,
         name: p.name,
         emoji: p.emoji,
+        text: sub?.text ?? null,
+        similarity: sub?.similarity ?? null,
+        note: sub?.note ?? null,
+        offline: Boolean(sub?.offline),
         choice: sub?.choice ?? null,
         predict: sub?.predict ?? null,
         confidence: sub?.confidence ?? 1,
@@ -410,6 +484,17 @@ export class Room {
         };
       });
 
+    // Kdo je bil edini s svojim odgovorom (le pri izbirnih vprašanjih z dovolj igralci).
+    if (!def.open) {
+      const answered = perPlayer.filter((r) => r.choice != null);
+      if (answered.length >= 3) {
+        for (const r of answered) {
+          const same = answered.filter((o) => sameAnswer(q, o.choice, r.choice)).length;
+          if (same === 1) this.players.get(r.id).stats.lone += 1;
+        }
+      }
+    }
+
     this.history.push({
       index: this.index,
       question: { ...q },
@@ -418,11 +503,21 @@ export class Room {
       pairs,
     });
 
+    // Uvrstitev po vsakem vprašanju - iz nje se vidi, kdo se je pobral s dna.
+    const ranked = [...this.players.values()].sort((a, b) => b.score - a.score);
+    ranked.forEach((p, i) => {
+      const rank = i + 1;
+      p.stats.bestRank = p.stats.bestRank == null ? rank : Math.min(p.stats.bestRank, rank);
+      p.stats.worstRank = p.stats.worstRank == null ? rank : Math.max(p.stats.worstRank, rank);
+    });
+
     this.phase = 'reveal';
+    this.revealing = false;
     this.changed();
   }
 
   end() {
+    if (this.phase === 'judging') throw new Error('Počakaj, presoja odgovorov še teče.');
     this.clearTimers();
     this.phase = 'ended';
     this.changed();
@@ -446,46 +541,150 @@ export class Room {
 
   awards() {
     const list = [...this.players.values()];
+    const couples = this.coupleScores();
     const out = [];
-    const pick = (label, emoji, arr, fmt) => {
-      if (!arr.length) return;
-      const best = arr[0];
-      out.push({ label, emoji, name: best.p.name, playerEmoji: best.p.emoji, value: fmt(best) });
+
+    /** Doda nagrado za najboljšega po merilu; tiho preskoči, če kandidatov ni. */
+    const best = ({ label, emoji, from, by, value, min = 1 }) => {
+      const rows = (from || list).map((p) => ({ p, v: by(p) })).filter((r) => r.v != null && r.v >= min);
+      if (!rows.length) return;
+      rows.sort((a, b) => b.v - a.v);
+      const w = rows[0];
+      out.push({ label, emoji, name: w.p.name, playerEmoji: w.p.emoji, value: value(w) });
     };
 
-    pick('Najboljši poznavalec', '💘',
-      list.filter((p) => p.stats.predictOpps >= 2)
-        .map((p) => ({ p, v: p.stats.predictHits / p.stats.predictOpps }))
-        .sort((a, b) => b.v - a.v),
-      (b) => `${Math.round(b.v * 100)} % zadetih napovedi`);
+    // --- posamezniki ---
+    best({
+      label: 'Krona večera', emoji: '👑',
+      by: (p) => p.score, min: 1,
+      value: (w) => `${w.v} točk`,
+    });
 
-    pick('Hodeča enciklopedija', '🧠',
-      list.filter((p) => p.stats.factQuestions > 0 && p.stats.correct > 0)
-        .map((p) => ({ p, v: p.stats.correct / p.stats.factQuestions, n: p.stats.correct }))
-        .sort((a, b) => b.v - a.v || b.n - a.n),
-      (b) => `${sloCount(b.n, ['pravilen odgovor', 'pravilna odgovora', 'pravilni odgovori', 'pravilnih odgovorov'])} (${Math.round(b.v * 100)} %)`);
+    best({
+      label: 'Najboljši poznavalec', emoji: '💘',
+      by: (p) => (p.stats.predictOpps >= 2 ? p.stats.predictHits / p.stats.predictOpps : null),
+      min: 0.01,
+      value: (w) => `${Math.round(w.v * 100)} % zadetih napovedi`,
+    });
 
-    pick('Najhitrejši prst', '⚡',
-      list.filter((p) => p.stats.msCount >= 2)
-        .map((p) => ({ p, v: p.stats.msTotal / p.stats.msCount }))
-        .sort((a, b) => a.v - b.v),
-      (b) => `${(b.v / 1000).toFixed(1)} s v povprečju`);
+    best({
+      label: 'Hodeča enciklopedija', emoji: '🧠',
+      by: (p) => (p.stats.factQuestions > 0 && p.stats.correct > 0 ? p.stats.correct / p.stats.factQuestions : null),
+      min: 0.01,
+      value: (w) => `${sloCount(w.p.stats.correct, ['pravilen odgovor', 'pravilna odgovora', 'pravilni odgovori', 'pravilnih odgovorov'])} (${Math.round(w.v * 100)} %)`,
+    });
 
-    pick('Največji hazarder', '🎲',
-      list.filter((p) => p.stats.confidenceCount > 0)
-        .map((p) => ({ p, v: p.stats.confidenceTotal / p.stats.confidenceCount }))
-        .sort((a, b) => b.v - a.v)
-        .filter((x) => x.v > 1),
-      (b) => `povprečen vložek x${b.v.toFixed(1)}`);
+    best({
+      label: 'Najhitrejši prst', emoji: '⚡',
+      by: (p) => (p.stats.msCount >= 2 ? 1 / (p.stats.msTotal / p.stats.msCount) : null),
+      min: 0,
+      value: (w) => `${(w.p.stats.msTotal / w.p.stats.msCount / 1000).toFixed(1)} s v povprečju`,
+    });
 
-    const chem = this.coupleScores().filter((c) => !c.solo && c.chemistry != null).sort((a, b) => b.chemistry - a.chemistry);
-    if (chem.length) {
-      out.push({ label: 'Najbolj usklajena', emoji: '🔗', name: chem[0].name, playerEmoji: chem[0].emojis.join(''), value: `${chem[0].chemistry} % kemije` });
+    // Hitro IN pravilno - pravilni odgovori na sekundo razmišljanja.
+    best({
+      label: 'Ostri um', emoji: '🎯',
+      by: (p) => {
+        if (p.stats.factQuestions < 2 || !p.stats.msCount || !p.stats.correct) return null;
+        const acc = p.stats.correct / p.stats.factQuestions;
+        const avgS = p.stats.msTotal / p.stats.msCount / 1000;
+        return avgS > 0 ? acc / avgS : null;
+      },
+      min: 0.001,
+      value: (w) => `${Math.round((w.p.stats.correct / w.p.stats.factQuestions) * 100)} % pravilnih v `
+        + `${(w.p.stats.msTotal / w.p.stats.msCount / 1000).toFixed(1)} s`,
+    });
+
+    best({
+      label: 'Največji hazarder', emoji: '🎲',
+      by: (p) => (p.stats.confidenceCount > 0 && p.stats.confidenceTotal / p.stats.confidenceCount > 1
+        ? p.stats.confidenceTotal / p.stats.confidenceCount : null),
+      min: 1.01,
+      value: (w) => `povprečen vložek x${w.v.toFixed(1)}`,
+    });
+
+    best({
+      label: 'Kamikaza', emoji: '💥',
+      by: (p) => p.stats.riskyMiss, min: 2,
+      value: (w) => `${sloCount(w.v, ['zgrešen vložek x3', 'zgrešena vložka x3', 'zgrešeni vložki x3', 'zgrešenih vložkov x3'])}`,
+    });
+
+    best({
+      label: 'Mirna roka', emoji: '🧊',
+      by: (p) => (p.stats.riskyHit > 0 && p.stats.riskyMiss === 0 ? p.stats.riskyHit : null), min: 2,
+      value: (w) => `${sloCount(w.v, ['zadet vložek x3', 'zadeta vložka x3', 'zadeti vložki x3', 'zadetih vložkov x3'])}, brez zgrešenega`,
+    });
+
+    best({
+      label: 'Črna ovca', emoji: '🐺',
+      by: (p) => p.stats.lone, min: 2,
+      value: (w) => `${sloCount(w.v, ['odgovor', 'odgovora', 'odgovori', 'odgovorov'])}, ki jih ni izbral nihče drug`,
+    });
+
+    best({
+      label: 'Zadnji hip', emoji: '🕰️',
+      by: (p) => p.stats.lastSecond, min: 2,
+      value: (w) => `${sloCount(w.v, ['odgovor', 'odgovora', 'odgovori', 'odgovorov'])} tik pred iztekom`,
+    });
+
+    best({
+      label: 'Vzpon večera', emoji: '📈',
+      by: (p) => (p.stats.worstRank != null && p.stats.bestRank != null ? p.stats.worstRank - p.stats.bestRank : null),
+      min: 2,
+      value: (w) => `z ${w.p.stats.worstRank}. na ${w.p.stats.bestRank}. mesto`,
+    });
+
+    // --- opisna vprašanja ---
+    best({
+      label: 'Telepatija', emoji: '🧿',
+      by: (p) => (p.stats.openSimBest >= 70 ? p.stats.openSimBest : null), min: 70,
+      value: (w) => `${w.v} % ujemanja pri enem odgovoru`,
+    });
+
+    best({
+      label: 'Pisatelj', emoji: '✍️',
+      by: (p) => (p.stats.openSimCount ? p.stats.words / p.stats.openSimCount : null), min: 6,
+      value: (w) => `${Math.round(w.v)} besed na odgovor`,
+    });
+
+    // --- pari ---
+    const chem = couples.filter((c) => !c.solo && c.chemistry != null).sort((a, b) => b.chemistry - a.chemistry);
+    if (chem.length && chem[0].chemistry > 0) {
+      out.push({
+        label: 'Najbolj usklajena', emoji: '🔗',
+        name: chem[0].name, playerEmoji: chem[0].emojis.join(''),
+        value: `${chem[0].chemistry} % kemije`,
+      });
     }
-    if (chem.length > 1 && chem[chem.length - 1].chemistry < chem[0].chemistry) {
+    if (chem.length > 1 && chem[0].chemistry > 0 && chem[chem.length - 1].chemistry < chem[0].chemistry) {
       const last = chem[chem.length - 1];
-      out.push({ label: 'Dva svetova', emoji: '🌗', name: last.name, playerEmoji: last.emojis.join(''), value: `${last.chemistry} % kemije - je še prostor za rast` });
+      out.push({
+        label: 'Dva svetova', emoji: '🌗',
+        name: last.name, playerEmoji: last.emojis.join(''),
+        value: `${last.chemistry} % kemije - je še prostor za rast`,
+      });
     }
+
+    // Enostransko poznavanje: eden zadene partnerja veliko bolje kot obratno.
+    const lopsided = this.couples().filter((c) => !c.solo).map((c) => {
+      const [a, b] = c.members;
+      const acc = (p) => (p.stats.predictOpps >= 2 ? p.stats.predictHits / p.stats.predictOpps : null);
+      const [aa, bb] = [acc(a), acc(b)];
+      if (aa == null || bb == null) return null;
+      const gap = Math.abs(aa - bb);
+      const better = aa >= bb ? a : b;
+      const other = aa >= bb ? b : a;
+      return { gap, better, other, name: c.members.map((m) => m.name).join(' & ') };
+    }).filter(Boolean).sort((x, y) => y.gap - x.gap);
+    if (lopsided.length && lopsided[0].gap >= 0.34) {
+      const t = lopsided[0];
+      out.push({
+        label: 'Enosmerna ulica', emoji: '🪞',
+        name: t.name, playerEmoji: `${t.better.emoji}${t.other.emoji}`,
+        value: `${t.better.name} pozna ${t.other.name} precej bolje kot obratno`,
+      });
+    }
+
     return out;
   }
 
@@ -526,7 +725,7 @@ export class Room {
     room.phase = snap.phase === 'question' ? 'question' : snap.phase || 'lobby';
     if (room.phase === 'question') {
       room.questionStartedAt = Date.now();
-      room.timer = setTimeout(() => room.reveal(), room.settings.timeLimit * 1000 + 500);
+      room.timer = setTimeout(() => room.reveal(), room.timeLimit() * 1000 + 500);
     }
     return room;
   }
@@ -552,6 +751,10 @@ export class Room {
         matches: h.pairs.filter((p) => p.match).length,
         hits: h.perPlayer.filter((p) => p.correct === true).length,
         answered: h.perPlayer.filter((p) => p.choice != null).length,
+        avgSimilarity: (() => {
+          const sims = h.pairs.map((p) => p.a?.similarity).filter((v) => v != null);
+          return sims.length ? Math.round(sims.reduce((a, b) => a + b, 0) / sims.length) : null;
+        })(),
       })),
     };
   }
@@ -580,10 +783,11 @@ export class Room {
       question: q && this.phase !== 'lobby' ? {
         id: q.id, index: q.index, mode: q.mode, category: q.category, text: q.text,
         options: q.options, weight: q.weight, weightSet: q.weightSet,
+        open: Boolean(MODES[q.mode]?.open),
         correct: this.phase === 'reveal' ? q.correct : undefined,
         explanation: this.phase === 'reveal' ? q.explanation : undefined,
       } : null,
-      timeLimit: this.settings.timeLimit,
+      timeLimit: this.timeLimit(),
       startedAt: this.questionStartedAt,
       reveal: this.phase === 'reveal' ? this.history[this.history.length - 1] : null,
       awards: this.phase === 'ended' ? this.awards() : null,
@@ -615,17 +819,17 @@ export class Room {
         .map((x) => ({ id: x.id, name: x.name, emoji: x.emoji, paired: Boolean(x.partnerId), wantsMe: x.pendingPartner === p.id })) : null,
       questionCount: this.questions.length,
       index: this.index,
-      timeLimit: this.settings.timeLimit,
+      timeLimit: this.timeLimit(),
       startedAt: this.questionStartedAt,
       standings: this.coupleScores().slice(0, 5),
     };
 
-    if (this.phase === 'question' && q) {
+    if ((this.phase === 'question' || this.phase === 'judging') && q) {
       const def = MODES[q.mode];
       base.question = {
         id: q.id, index: q.index, mode: q.mode, modeLabel: def.label, modeEmoji: def.emoji,
         tagline: def.tagline, category: q.category, text: q.text, options: q.options,
-        multi: def.multi, weight: q.weight,
+        multi: def.multi, weight: q.weight, open: Boolean(def.open),
         asksPredict: Boolean(def.predicts && partner),
         asksConfidence: Boolean(def.confidence),
         partnerName: partner?.name || null,

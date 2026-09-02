@@ -51,12 +51,22 @@ export const BANK = [
   { mode: 'know', category: 'Odnos', text: 'Kako najraje rešuješ nesoglasje?', options: ['Takoj se pogovoriva', 'Potrebujem malo časa', 'S humorjem', 'Popustim, da je mir'] },
   { mode: 'know', category: 'Navade', text: 'Kaj je najbolj verjetno v tvojem hladilniku?', options: ['Ostanki od včeraj', 'Preveč zelenjave', 'Skoraj nič', 'Sladica, skrita zadaj'] },
   { mode: 'know', category: 'Značaj', text: 'Kako bi te opisali prijatelji v eni besedi?', options: ['Zabaven', 'Miren', 'Organiziran', 'Nepredvidljiv'] },
+
+  // ---------- Z BESEDAMI (opisno) ----------
+  { mode: 'open', category: 'Skupno', text: 'Kam bi šla jutri zjutraj, če bi imela cel dan zase?', options: [] },
+  { mode: 'open', category: 'Skupno', text: 'Kaj bi bilo na mizi na vajini idealni večerji?', options: [] },
+  { mode: 'open', category: 'Odnos', text: 'Po čem se bosta čez deset let spomnila tega leta?', options: [] },
+  { mode: 'open', category: 'Skupno', text: 'Katera pesem bi igrala, ko bi vidva stopila v prostor?', options: [] },
+  { mode: 'open', category: 'Navade', text: 'Kaj v stanovanju bi najprej rešil iz požara?', options: [] },
+  { mode: 'open', category: 'Odnos', text: 'Kaj je najbolj nenavadno, kar sta kdaj naredila skupaj?', options: [] },
+  { mode: 'open', category: 'Skupno', text: 'Kako bi se imenovala vajina skupna kavarna?', options: [] },
+  { mode: 'open', category: 'Značaj', text: 'S katero živaljo bi opisal svojega para?', options: [] },
 ];
 
 /**
  * Naključni izbor iz banke, po možnosti z zahtevano razporeditvijo načinov.
  */
-export function pickFromBank(count, modes = ['trivia', 'multi', 'sync', 'know']) {
+export function pickFromBank(count, modes = ['trivia', 'multi', 'sync', 'know', 'open']) {
   const pool = {};
   for (const m of modes) pool[m] = shuffle(BANK.filter((q) => q.mode === m));
   const out = [];

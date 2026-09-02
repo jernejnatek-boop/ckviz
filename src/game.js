@@ -46,6 +46,17 @@ export const MODES = {
     predicts: true,
     confidence: false,
   },
+  open: {
+    id: 'open',
+    label: 'Z besedami',
+    emoji: '✍️',
+    tagline: 'Odgovorita s svojimi besedami. Točke da ujemanje pomena, ne črk.',
+    hasCorrect: false,
+    multi: false,
+    predicts: false,
+    confidence: false,
+    open: true,
+  },
 };
 
 export const MODE_IDS = Object.keys(MODES);
@@ -61,6 +72,8 @@ export const POINTS = {
   speedMax: 50,          // maksimalen bonus za hitrost
   soloBoost: 1.4,        // igralec brez para dobi pribitek na znanje
   hotMultiplier: 2,      // privzet množitelj vročega kroga
+  openMax: 200,          // pri 100 % ujemanju opisnih odgovorov
+  openSolo: 80,          // igralec brez para - nima se s kom ujeti
 };
 
 export const CONFIDENCE_LEVELS = [1, 2, 3];
@@ -73,10 +86,18 @@ export function questionWeight(question) {
 }
 
 export const DEFAULT_SETTINGS = {
-  timeLimit: 30,
+  timeLimit: 30,       // vprašanja z izbiro
+  openTimeLimit: 75,   // opisna vprašanja - pisanje traja dlje
   theme: 'Splošna razgledanost',
   hotRound: true,
 };
+
+/** Koliko časa ima igralec pri tem vprašanju. */
+export function timeLimitFor(question, settings) {
+  return MODES[question?.mode]?.open
+    ? (settings.openTimeLimit || DEFAULT_SETTINGS.openTimeLimit)
+    : (settings.timeLimit || DEFAULT_SETTINGS.timeLimit);
+}
 
 export const MAX_PLAYERS = 10;
 export const MIN_QUESTIONS = 3;
@@ -169,6 +190,21 @@ export function scoreSubmission({ question, submission, partnerSubmission, hasPa
       const v = question.mode === 'know' ? POINTS.knowHit : POINTS.predict;
       lines.push({ key: 'predict', label: 'Ugani par 💘', value: v });
       total += v;
+    }
+  }
+
+  if (mode.open) {
+    const written = typeof submission?.text === 'string' && submission.text.trim().length > 0;
+    if (written && hasPartner) {
+      const sim = Math.max(0, Math.min(100, Number(submission.similarity) || 0));
+      const value = Math.round((POINTS.openMax * sim) / 100);
+      if (value > 0) {
+        lines.push({ key: 'open', label: `Ujemanje ${sim} % ✍️`, value });
+        total += value;
+      }
+    } else if (written) {
+      lines.push({ key: 'openSolo', label: 'Zapisan odgovor ✍️', value: POINTS.openSolo });
+      total += POINTS.openSolo;
     }
   }
 

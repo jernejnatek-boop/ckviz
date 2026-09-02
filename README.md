@@ -27,6 +27,7 @@ se najbolje bere med vrsticami.
 | ✅ **Več pravilnih** | Pravilna sta dva ali trije odgovori. Napačna izbira odnese točke. | +40 na zadetek, −20 na zgrešeno |
 | 🔗 **Sinhronizacija** | Ni pravilnega odgovora - par mora **brez pogovora izbrati isto**. | +150, če se ujameta |
 | 💘 **Ali me poznaš?** | Odgovoriš zase, partner ugiba, kaj si izbral. | +150 za vsako uganjeno |
+| ✍️ **Z besedami** | Ni možnosti za izbiro - oba **napišeta svoj odgovor**. Claude nato presodi, ali sta mislila isto, tudi če sta zapisala drugače. | do 200 po odstotku ujemanja pomena |
 
 ### Dve ravni stave
 
@@ -40,9 +41,36 @@ se najbolje bere med vrsticami.
 Stikalo **Vroči krog 🔥** samo prednastavi x2 na zadnjih 20 % vprašanj, da je do konca
 vse odprto. Kar nastaviš ročno, ostane - tudi če vprašanja kasneje brišeš ali dodajaš.
 
+### Odgovori s svojimi besedami
+
+Pri načinu **Z besedami** ni možnosti za izbiro: vsak na telefon napiše svoj odgovor,
+nato pa Claude oceni, koliko sta partnerja v resnici mislila isto - *"na morje"* in
+*"nekam, kjer je toplo in je voda"* sta isti odgovor, čeprav nimata skupne besede.
+Iz ocene (0-100 %) se izračunajo točke, na zaslonu pa se pokažeta oba odgovora drug ob
+drugem, odstotek ujemanja in kratka pripomba.
+
+Ker pisanje traja dlje od izbiranja, imata **oba časa svojo nastavitev**: *Čas: izbirna*
+(privzeto 30 s) in *Čas: opisna* (privzeto 75 s). Med presojo je na obeh zaslonih
+vmesni prikaz, da ni videti, kot da se je igra ustavila.
+
+Brez ključa za Claude ta način še vedno deluje, a ujemanje oceni preprost izračun
+ujemanja besed in črk - to je na zaslonu tudi označeno.
+
+### Nagrade večera
+
 Na koncu velik zaslon pokaže stopničke, **Kemijomer**, pregled vprašanje za vprašanjem
-in nagrade večera: *Najboljši poznavalec*, *Hodeča enciklopedija*, *Najhitrejši prst*,
-*Največji hazarder*, *Najbolj usklajena* in *Dva svetova*.
+in nagrade, ki se podelijo le, kadar si jih je kdo res prislužil:
+
+| | | |
+|---|---|---|
+| 👑 **Krona večera** | največ točk | 🎯 **Ostri um** | najboljše razmerje med hitrostjo in pravilnostjo |
+| 💘 **Najboljši poznavalec** | največ uganjenih odgovorov partnerja | ⚡ **Najhitrejši prst** | najkrajši povprečni čas |
+| 🧠 **Hodeča enciklopedija** | največ pravilnih odgovorov | 🎲 **Največji hazarder** | najvišji povprečni vložek |
+| 💥 **Kamikaza** | največ zgrešenih vložkov x3 | 🧊 **Mirna roka** | vložki x3 brez enega samega zgrešenega |
+| 🐺 **Črna ovca** | največkrat edini s svojim odgovorom | 🕰️ **Zadnji hip** | največ odgovorov tik pred iztekom |
+| 📈 **Vzpon večera** | največ pridobljenih mest | 🧿 **Telepatija** | najvišje ujemanje pri opisnem odgovoru |
+| ✍️ **Pisatelj** | najdaljši opisni odgovori | 🔗 **Najbolj usklajena** | par z največ kemije |
+| 🌗 **Dva svetova** | par z najmanj kemije | 🪞 **Enosmerna ulica** | eden pozna drugega precej bolje kot obratno |
 
 ---
 
@@ -233,5 +261,7 @@ render.yaml, fly.toml  pripravljeni načrti za postavitev
 | `CKVIZ_FALLBACK_MODEL` | `claude-opus-4-8` | rezervni model ob zavrnitvi |
 | `CKVIZ_EFFORT` | `high` | koliko truda vloži model (`low`-`max`) |
 | `CKVIZ_BATCH` | `12` | koliko vprašanj zahtevamo v enem klicu pri večjih krogih |
+| `CKVIZ_JUDGE_MODEL` | isti kot `CKVIZ_MODEL` | model za presojo opisnih odgovorov |
+| `CKVIZ_JUDGE_EFFORT` | `low` | presoja teče sredi igre, zato hitro |
 
 Zdravstvena točka za ponudnike: `GET /healthz`.

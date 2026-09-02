@@ -11,7 +11,7 @@ let chosenAvatar = null;
 let joined = false;
 
 // lokalna izbira za trenutno vprašanje
-let draft = { qid: null, choice: null, predict: null, confidence: 1, locked: false };
+let draft = { qid: null, choice: null, predict: null, confidence: 1, text: '', locked: false };
 let ticker = null;
 
 fetch('/api/info').then((r) => r.json()).then((info) => {
@@ -54,7 +54,7 @@ const wire = new Wire({
       state = msg;
       joined = true;
       if (state.phase === 'question' && (prevPhase !== 'question' || prevIdx !== state.index)) {
-        draft = { qid: state.question.id, choice: state.question.multi ? [] : null, predict: null, confidence: 1, locked: false };
+        draft = { qid: state.question.id, choice: state.question.multi ? [] : null, predict: null, confidence: 1, text: '', locked: false };
         if (navigator.vibrate) navigator.vibrate(30);
       }
       if (state.phase === 'reveal' && prevPhase === 'question') {
@@ -74,6 +74,7 @@ function render() {
   el('#tbSub').textContent = state
     ? (state.phase === 'lobby' ? `soba ${state.code} · čakalnica`
       : state.phase === 'ended' ? 'konec igre'
+      : state.phase === 'judging' ? 'presojam odgovora ...'
       : `vprašanje ${state.index + 1}/${state.questionCount}`)
     : `soba ${CODE || '—'}`;
   el('#tbScore').textContent = state?.me?.score ?? 0;
@@ -82,6 +83,7 @@ function render() {
   if (!joined || !state) return app.append(viewJoin());
   if (state.phase === 'lobby') return app.append(viewLobby());
   if (state.phase === 'question') return app.append(viewQuestion());
+  if (state.phase === 'judging') return app.append(viewJudging());
   if (state.phase === 'reveal') return app.append(viewReveal());
   if (state.phase === 'ended') return app.append(viewEnd());
 }
@@ -155,7 +157,7 @@ function viewLobby() {
 function viewQuestion() {
   const q = state.question;
   const mine = state.mine;
-  if (draft.qid !== q.id) draft = { qid: q.id, choice: q.multi ? [] : null, predict: null, confidence: 1, locked: false };
+  if (draft.qid !== q.id) draft = { qid: q.id, choice: q.multi ? [] : null, predict: null, confidence: 1, text: '', locked: false };
   if (mine?.locked) draft.locked = true;
 
   const header = h('div', { class: 'card' },
@@ -175,6 +177,47 @@ function viewQuestion() {
         state.partner
           ? (state.partnerLocked ? 'Tudi tvoj par je oddal. Gremo!' : `Čakamo ${state.partner.name} ...`)
           : 'Čakamo ostale ...')));
+  }
+
+  // Opisno vprašanje - eno polje in gumb, brez korakov.
+  if (q.open) {
+    const area = h('textarea', {
+      id: 'openAnswer', rows: '4', maxlength: '400', placeholder: 'Napiši s svojimi besedami ...',
+      style: 'resize:vertical; line-height:1.45',
+    });
+    area.value = draft.text;
+    const counter = h('div', { class: 'muted', style: 'font-size:11px; margin-top:6px; text-align:right' },
+      `${draft.text.length}/400`);
+    area.addEventListener('input', () => {
+      draft.text = area.value;
+      counter.textContent = `${draft.text.length}/400`;
+      lock.disabled = !draft.text.trim();
+      lock.textContent = draft.text.trim() ? 'Zakleni odgovor 🔒' : 'Napiši odgovor';
+      clearTimeout(area._t);
+      area._t = setTimeout(() => pushDraft(false), 600);
+    });
+    const lock = h('button', {
+      class: 'btn primary big', disabled: !draft.text.trim(),
+      onclick: () => {
+        clearTimeout(area._t);
+        draft.locked = true;
+        pushDraft(true);
+        render();
+      },
+    }, draft.text.trim() ? 'Zakleni odgovor 🔒' : 'Napiši odgovor');
+
+    return h('div', {}, header,
+      h('div', { class: 'step' },
+        h('div', { class: 'step-head' },
+          h('span', { class: 'step-num' }, '1'),
+          h('b', {}, 'Tvoj odgovor'),
+          h('span', { class: 'muted small' }, '- s svojimi besedami')),
+        area, counter,
+        h('p', { class: 'muted small', style: 'margin-top:10px' },
+          state.partner
+            ? `Točke prinese to, koliko se po pomenu ujameš s ${state.partner.name} - ne, kdo napiše lepše.`
+            : 'Brez para tokrat dobiš točke že za zapisan odgovor.')),
+      h('div', { class: 'dock' }, lock));
   }
 
   // 1. korak - lasten odgovor
@@ -239,6 +282,17 @@ function viewQuestion() {
   return h('div', {}, header, ...steps, dock);
 }
 
+function viewJudging() {
+  const q = state.question;
+  return h('div', {},
+    h('div', { class: 'card center' },
+      h('div', { style: 'font-size:44px' }, '🔮'),
+      h('h3', { style: 'margin-top:12px' }, 'Presojam vajina odgovora'),
+      h('p', { class: 'muted small', style: 'margin-top:8px' },
+        'Gledam, ali sta mislila isto - tudi če sta napisala drugače.'),
+      q ? h('p', { class: 'muted small pulse', style: 'margin-top:14px' }, q.text) : null));
+}
+
 function viewReveal() {
   const r = state.reveal;
   if (!r) return h('div', { class: 'card center' }, 'Računam ...');
@@ -255,6 +309,34 @@ function viewReveal() {
           h('span', { class: 'muted' }, l.label),
           h('span', { class: 'v', style: l.value < 0 ? 'color:var(--red)' : '' }, `${l.value > 0 ? '+' : ''}${Math.round(l.value)}`))))
       : h('p', { class: 'muted small', style: 'margin-top:10px' }, 'Tokrat brez točk. Naslednje bo bolje.'));
+
+  if (q.mode === 'open') {
+    const sim = me?.similarity;
+    const openCard = h('div', { class: 'card', style: 'margin-top:14px' },
+      h('div', { class: 'tiny' }, q.category || 'Vprašanje'),
+      h('h3', { style: 'font-size:17px; margin-top:8px; line-height:1.35' }, q.text),
+      h('div', { class: 'answers' },
+        h('div', { class: 'ans mine' },
+          h('div', { class: 'who' }, `${me?.emoji || '🙂'} ti`),
+          h('p', {}, me?.text || '—')),
+        partner ? h('div', { class: 'ans' },
+          h('div', { class: 'who' }, `${partner.emoji} ${partner.name}`),
+          h('p', {}, partner.text || '—')) : null),
+      sim != null ? h('div', { style: 'margin-top:16px' },
+        h('div', { class: 'row spread', style: 'margin-bottom:6px' },
+          h('span', { class: 'tiny' }, 'Ujemanje pomena'),
+          h('span', { style: 'font-weight:900; font-size:20px' }, `${sim} %`)),
+        h('div', { class: 'bar-track', style: 'height:14px' },
+          h('div', { class: 'bar-fill', style: `width:${sim}%; background:linear-gradient(90deg,var(--violet),var(--pink))` })),
+        me?.note ? h('p', { class: 'small', style: 'margin-top:12px; text-align:center' }, me.note) : null,
+        me?.offline ? h('p', { class: 'muted', style: 'font-size:11px; margin-top:6px; text-align:center' },
+          'Ocenjeno približno - presoja z AI ni bila na voljo.') : null) : null);
+    return h('div', {}, head, openCard,
+      h('div', { class: 'reactions' }, ['😂', '😱', '🔥', '💘', '🤯', '👏'].map((e) => h('button', {
+        onclick: () => { wire.send({ t: 'reaction', emoji: e }); burst(e, 2); },
+      }, e))),
+      standingsCard());
+  }
 
   const answerCard = h('div', { class: 'card', style: 'margin-top:14px' },
     h('div', { class: 'tiny' }, q.category || 'Vprašanje'),
@@ -298,14 +380,16 @@ function viewReveal() {
       onclick: () => { wire.send({ t: 'reaction', emoji: e }); burst(e, 2); },
     }, e)));
 
-  const standings = h('div', { class: 'card', style: 'margin-top:14px' },
+  return h('div', {}, head, answerCard, mirror, reactions, standingsCard());
+}
+
+function standingsCard() {
+  return h('div', { class: 'card', style: 'margin-top:14px' },
     h('div', { class: 'tiny', style: 'margin-bottom:10px' }, 'Vrstni red'),
     h('div', { class: 'pill-list' }, (state.standings || []).map((c, i) => h('div', { class: `rank ${i === 0 ? 'top' : ''}` },
       h('span', { class: 'pos' }, `${i + 1}.`),
       h('span', { class: 'who' }, `${c.emojis.join('')} ${c.name}`),
       h('span', { class: 'pts' }, c.score)))));
-
-  return h('div', {}, head, answerCard, mirror, reactions, standings);
 }
 
 function viewEnd() {
@@ -364,7 +448,10 @@ function sameChoice(q, a, b) {
 }
 
 function pushDraft(locked) {
-  wire.send({ t: 'answer', qid: draft.qid, choice: draft.choice, predict: draft.predict, confidence: draft.confidence, locked });
+  // Zaklenjenega odgovora nikoli ne odklenemo - sicer bi odloženo shranjevanje
+  // med tipkanjem povozilo pravkar oddani odgovor.
+  if (draft.locked && !locked) return;
+  wire.send({ t: 'answer', qid: draft.qid, choice: draft.choice, text: draft.text, predict: draft.predict, confidence: draft.confidence, locked });
 }
 
 function timerNode() {

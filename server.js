@@ -469,6 +469,7 @@ function archive(room, ws) {
 function sanitizeSettings(s = {}) {
   const out = {};
   if (s.timeLimit != null) out.timeLimit = Math.min(120, Math.max(10, Number(s.timeLimit) || 30));
+  if (s.openTimeLimit != null) out.openTimeLimit = Math.min(300, Math.max(20, Number(s.openTimeLimit) || 75));
   if (s.theme != null) out.theme = String(s.theme).slice(0, 200);
   if (s.hotRound != null) out.hotRound = Boolean(s.hotRound);
   return out;
