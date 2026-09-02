@@ -59,6 +59,7 @@ export class Room {
     this.revealTimer = null;
     this.generating = false;
     this.genError = null;
+    this.genProgress = null;
     this.onChange = onChange || (() => {});
     this.touched = Date.now();
   }
@@ -566,6 +567,7 @@ export class Room {
       settings: this.settings,
       generating: this.generating,
       genError: this.genError,
+      genProgress: this.genProgress || null,
       questionCount: this.questions.length,
       index: this.index,
       players: [...this.players.values()].map((p) => ({

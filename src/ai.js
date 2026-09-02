@@ -4,13 +4,16 @@
 // Če ključa ni, server samodejno uporabi rezervni nabor iz questionBank.js.
 
 import Anthropic from '@anthropic-ai/sdk';
-import { MODE_IDS, MODES } from './game.js';
+import { MODE_IDS, MODES, MAX_QUESTIONS } from './game.js';
 
 const MODEL = process.env.CKVIZ_MODEL || 'claude-opus-5';
 const FALLBACK_MODEL = process.env.CKVIZ_FALLBACK_MODEL || 'claude-opus-4-8';
 // Vprašanja se pišejo enkrat na krog, zato je kakovost pomembnejša od hitrosti.
 // Z CKVIZ_EFFORT=low ali medium je generiranje hitrejše, a bolj plehko.
 const EFFORT = process.env.CKVIZ_EFFORT || 'high';
+// Koliko vprašanj zahtevamo v enem klicu. Pri daljših seznamih model rad vrne
+// manj, kot je bilo zahtevano, zato večji krog raje razdelimo na sklope.
+const BATCH_SIZE = Number(process.env.CKVIZ_BATCH || 12);
 
 let client = null;
 export function aiAvailable() {
@@ -94,7 +97,7 @@ Pravila kakovosti:
 - Vprašanja za pare naj bodo topla in zabavna, nikoli žaljiva, spolno eksplicitna ali taka, ki bi lahko sprožila resen prepir.
 - Dejstva v načinih trivia in multi morajo biti preverljivo resnična.`;
 
-function buildPrompt({ theme, count, difficulty, modes, tone, avoid, topUp }) {
+function buildPrompt({ theme, count, difficulty, modes, tone, avoid, topUp, batch }) {
   const mix = modes.map((m) => `- "${m}" (${MODES[m].label}): ${MODES[m].tagline}`).join('\n');
   const avoidLine = avoid?.length
     ? `\n\nTA VPRAŠANJA SO ŽE UPORABLJENA. Ne ponovi jih niti po vsebini, niti z drugimi besedami:\n${avoid.map((t) => `- ${t}`).join('\n')}`
@@ -102,11 +105,14 @@ function buildPrompt({ theme, count, difficulty, modes, tone, avoid, topUp }) {
   const topUpLine = topUp
     ? `\nTo je dopolnitev kroga - nekaj prejšnjih vprašanj ni bilo uporabnih. Bodi še posebej dosleden pri obliki: natanko štiri možnosti in pravilno izpolnjeno polje "correct".\n`
     : '';
+  const batchLine = batch
+    ? `\nTo je ${batch.index}. od ${batch.total} sklopov istega kviza, ki nastajajo hkrati. Da se sklopi ne bodo prekrivali, se izogni najbolj očitnim vprašanjem na to temo in izberi svež zorni kot.\n`
+    : '';
 
   return `TEMATIKA KROGA: "${theme}"
 
 Sestavi natanko ${count} vprašanj za en krog kviza za pare na to tematiko.
-${topUpLine}
+${topUpLine}${batchLine}
 ZAHTEVA GLEDE TEMATIKE (najpomembnejša):
 - Vsako posamezno vprašanje se mora navezovati na "${theme}". Nobenega splošnega vprašanja, ki bi lahko stalo v katerem koli drugem kvizu.
 - To velja tudi za načina "sync" in "know", kjer ni pravilnega odgovora: tam sestavi osebno vprašanje, ki izhaja iz te tematike. (Primer: pri tematiki "potovanja" je dobro vprašanje "Kaj prvo spakiraš v kovček?", slabo pa "Kaj narediš, ko prideš domov?".)
@@ -236,9 +242,12 @@ async function askModel(client, promptArgs) {
 }
 
 /**
- * Generira vprašanja s Claudom. Model včasih vrne manj vprašanj, kot smo
- * zahtevali, nekaj pa jih zavrne tudi preverjanje oblike - zato krog po
- * potrebi dopolnimo z dodatnimi klici.
+ * Generira vprašanja s Claudom.
+ *
+ * Velik krog razdelimo na sklope, ki tečejo hkrati - en sam klic za 50 vprašanj
+ * jih zanesljivo vrne manj, poleg tega bi zaporedno čakanje trajalo minute.
+ * Podvojena vprašanja med sklopi odpade preverjanje, morebitni manko pa
+ * dopolnimo z dodatnimi klici.
  */
 export async function generateQuestions({
   theme,
@@ -247,52 +256,97 @@ export async function generateQuestions({
   modes = MODE_IDS,
   tone = 'sproščen in duhovit',
   avoid = [],
-  maxRounds = 3,
+  topUpRounds = 2,
+  onProgress = null,
 } = {}) {
   const allowed = modes.filter((m) => MODE_IDS.includes(m));
   const useModes = allowed.length ? allowed : MODE_IDS;
+  const wanted = Math.min(MAX_QUESTIONS, Math.max(1, Math.round(count)));
   const client = getClient();
 
-  const collected = [];
   const seen = new Set(avoid.map((t) => String(t).trim().toLowerCase()));
+  const collected = [];
   const droppedAll = [];
+  const errors = [];
   let model = MODEL;
-  let rounds = 0;
 
-  while (collected.length < count && rounds < maxRounds) {
-    const missing = count - collected.length;
-    const message = await askModel(client, {
-      theme,
-      // Ob dopolnjevanju prosimo za nekaj rezerve, da ne rabimo še enega kroga.
-      count: rounds === 0 ? count : Math.min(missing + 2, 10),
-      difficulty,
-      modes: useModes,
-      tone,
-      avoid: [...avoid, ...collected.map((q) => q.text)],
-      topUp: rounds > 0,
-    });
+  const take = (message) => {
     model = message.model || model;
-
     const parsed = extractJson(message);
     const { questions, dropped } = normalize(parsed.questions, useModes, seen);
     droppedAll.push(...dropped);
     for (const q of questions) {
-      if (collected.length >= count) break;
+      if (collected.length >= wanted) break;
       collected.push(q);
     }
-    rounds++;
+    onProgress?.(collected.length, wanted);
+    return questions.length;
+  };
 
-    // Če krog ni prinesel ničesar uporabnega, nadaljnji poskusi nimajo smisla.
-    if (!questions.length) break;
+  // 1. Sklopi hkrati.
+  // Sklopi naj bodo enako veliki - en sklop z dvema vprašanjema je potrata klica.
+  const batchCount = Math.ceil(wanted / BATCH_SIZE);
+  const per = Math.floor(wanted / batchCount);
+  const extra = wanted % batchCount;
+  const batches = Array.from({ length: batchCount }, (_, i) => ({
+    index: i + 1,
+    total: batchCount,
+    size: per + (i < extra ? 1 : 0),
+  }));
+
+  const results = await Promise.allSettled(batches.map((b) => askModel(client, {
+    theme,
+    count: b.size,
+    difficulty,
+    modes: useModes,
+    tone,
+    avoid,
+    batch: batchCount > 1 ? b : null,
+  })));
+
+  for (const r of results) {
+    if (r.status === 'rejected') { errors.push(r.reason?.message || String(r.reason)); continue; }
+    try {
+      take(r.value);
+    } catch (err) {
+      errors.push(err.message);
+    }
   }
 
-  if (!collected.length) throw new Error('Claude ni vrnil uporabnih vprašanj. Poskusi znova.');
+  // 2. Dopolnjevanje, dokler krog ni poln.
+  let rounds = batches.length;
+  for (let i = 0; i < topUpRounds && collected.length < wanted; i++) {
+    const missing = wanted - collected.length;
+    let produced = 0;
+    try {
+      const message = await askModel(client, {
+        theme,
+        count: Math.min(missing + 2, BATCH_SIZE),
+        difficulty,
+        modes: useModes,
+        tone,
+        avoid: [...avoid, ...collected.map((q) => q.text)],
+        topUp: true,
+      });
+      produced = take(message);
+    } catch (err) {
+      errors.push(err.message);
+      break;
+    }
+    rounds++;
+    if (!produced) break; // nadaljnji poskusi nimajo smisla
+  }
+
+  if (!collected.length) {
+    throw new Error(errors[0] || 'Claude ni vrnil uporabnih vprašanj. Poskusi znova.');
+  }
 
   return {
-    questions: collected.slice(0, count),
+    questions: collected.slice(0, wanted),
     model,
-    requested: count,
+    requested: wanted,
     rounds,
     dropped: droppedAll,
+    errors,
   };
 }

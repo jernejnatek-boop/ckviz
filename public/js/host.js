@@ -196,10 +196,7 @@ function viewLobby() {
         type: 'text', value: setup.theme, placeholder: 'npr. 90. leta, potovanja, hrana ...',
         oninput: (e) => { setup.theme = e.target.value; store('ckviz:setup', setup); },
       })),
-      field('Št. vprašanj', h('input', {
-        type: 'number', min: '3', max: '30', value: setup.count,
-        oninput: (e) => { setup.count = Number(e.target.value); store('ckviz:setup', setup); },
-      })),
+      field('Št. vprašanj', countInput()),
       field('Zahtevnost', select(['lahka', 'srednja', 'težka', 'brutalna'], setup.difficulty, (v) => { setup.difficulty = v; store('ckviz:setup', setup); })),
       field('Ton', select(['sproščen in duhovit', 'romantičen', 'nagajiv', 'resen in poučen'], setup.tone, (v) => { setup.tone = v; store('ckviz:setup', setup); })),
       field('Čas na vprašanje (s)', h('input', {
@@ -226,13 +223,15 @@ function viewLobby() {
       h('button', {
         class: 'btn primary', disabled: state.generating,
         onclick: () => wire.send({ t: 'host:generate', ...genPayload(), append: false }),
-      }, state.generating ? 'Claude piše ...' : '✨ Ustvari vprašanja'),
+      }, state.generating
+        ? (state.genProgress?.done ? `Claude piše ... ${state.genProgress.done}/${state.genProgress.total}` : 'Claude piše ...')
+        : '✨ Ustvari vprašanja'),
       h('button', {
         class: 'btn', disabled: state.generating,
         onclick: () => wire.send({ t: 'host:generate', ...genPayload(), append: true }),
       }, '+ Dodaj še'),
       h('button', {
-        class: 'btn ghost', onclick: () => wire.send({ t: 'host:bank', count: setup.count, modes: setup.modes }),
+        class: 'btn ghost', onclick: () => wire.send({ t: 'host:bank', count: genPayload().count, modes: setup.modes }),
       }, 'Uporabi vgrajena')),
     state.genError ? h('p', { class: 'small', style: 'margin-top:12px; color:var(--amber)' }, state.genError) : null);
 
@@ -390,6 +389,35 @@ function joinHint() {
     'Telefoni morajo biti na istem WiFi kot ta računalnik.');
 }
 
+const minQ = () => info.minQuestions || 3;
+const maxQ = () => info.maxQuestions || 60;
+
+/**
+ * Polje za število vprašanj. Med tipkanjem ne posega vmes, ob potrditvi pa
+ * vrednost popravi na dovoljeno mejo in to tudi pove - da videz ni napaka.
+ */
+function countInput() {
+  const input = h('input', {
+    type: 'number', min: String(minQ()), max: String(maxQ()), value: setup.count,
+    oninput: (e) => { setup.count = Number(e.target.value); },
+    onchange: (e) => {
+      const raw = Number(e.target.value) || minQ();
+      const clamped = Math.min(maxQ(), Math.max(minQ(), Math.round(raw)));
+      if (clamped !== raw) {
+        toast(raw > maxQ()
+          ? `Največ ${maxQ()} vprašanj na krog - nastavljam ${clamped}.`
+          : `Najmanj ${minQ()} vprašanja - nastavljam ${clamped}.`, 'warn');
+      }
+      setup.count = clamped;
+      e.target.value = String(clamped);
+      store('ckviz:setup', setup);
+    },
+  });
+  return h('div', {},
+    input,
+    h('div', { class: 'muted', style: 'font-size:11px; margin-top:5px' }, `${minQ()} - ${maxQ()} na krog`));
+}
+
 /** Koliko je vprašanje vredno - voditelj nastavi za vsako posebej. */
 function weightPicker(q) {
   const current = q.weight || 1;
@@ -403,7 +431,8 @@ function weightPicker(q) {
 }
 
 function genPayload() {
-  return { theme: setup.theme, count: setup.count, difficulty: setup.difficulty, tone: setup.tone, modes: setup.modes };
+  const count = Math.min(maxQ(), Math.max(minQ(), Math.round(Number(setup.count) || 12)));
+  return { theme: setup.theme, count, difficulty: setup.difficulty, tone: setup.tone, modes: setup.modes };
 }
 
 function field(label, input) {

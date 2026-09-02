@@ -100,6 +100,12 @@ Brez ključa aplikacija deluje naprej in uporabi **vgrajen nabor 42 vprašanj**
 v slovenščini - le da si tematike ne moreš izbrati sam.
 Deluje tudi prijava prek Anthropic CLI (`ant auth login`).
 
+**Večji krogi:** en sam klic za 50 vprašanj jih zanesljivo vrne manj, zato se krog
+razdeli na sklope po 12, ki tečejo hkrati (velikost nastavi `CKVIZ_BATCH`).
+Podvojena vprašanja med sklopi odpadejo, morebitni manko pa se dopolni z dodatnimi
+klici - med generiranjem gumb kaže napredek (`Claude piše ... 24/50`). Če kakšen
+sklop ne uspe, ostali vseeno prispevajo svoja vprašanja.
+
 ---
 
 ## Postavitev na splet
@@ -166,7 +172,7 @@ in mu podaj `PUBLIC_URL=https://tvoja-domena`.
 ## Kako poteka večer
 
 1. **Priprava** (velik zaslon): vpišeš tematiko (`90. leta`, `potovanja`, `hrana`,
-   `naša služba` ...), število vprašanj, zahtevnost, ton in katere načine želiš.
+   `naša služba` ...), število vprašanj (3-60), zahtevnost, ton in katere načine želiš.
    Klikneš *Ustvari vprašanja* - Claude napiše krog v slovenščini. Vprašanja lahko
    pregledaš in katerokoli pobrišeš, z *Dodaj še* pa krog razširiš. Dober krog
    shrani z *Shrani ta kviz* in ga naslednjič naložiš v sekundi.
@@ -225,6 +231,7 @@ render.yaml, fly.toml  pripravljeni načrti za postavitev
 | `PORT` | `3000` | vrata strežnika |
 | `CKVIZ_MODEL` | `claude-opus-5` | model za pisanje vprašanj |
 | `CKVIZ_FALLBACK_MODEL` | `claude-opus-4-8` | rezervni model ob zavrnitvi |
-| `CKVIZ_EFFORT` | `medium` | koliko truda vloži model (`low`-`max`) |
+| `CKVIZ_EFFORT` | `high` | koliko truda vloži model (`low`-`max`) |
+| `CKVIZ_BATCH` | `12` | koliko vprašanj zahtevamo v enem klicu pri večjih krogih |
 
 Zdravstvena točka za ponudnike: `GET /healthz`.

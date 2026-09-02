@@ -79,6 +79,8 @@ export const DEFAULT_SETTINGS = {
 };
 
 export const MAX_PLAYERS = 10;
+export const MIN_QUESTIONS = 3;
+export const MAX_QUESTIONS = 60;
 
 const eq = (a, b) => a === b;
 

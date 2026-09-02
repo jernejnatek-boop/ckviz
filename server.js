@@ -10,9 +10,9 @@ import { WebSocketServer } from 'ws';
 import QRCode from 'qrcode';
 
 import { RoomStore, AVATARS } from './src/rooms.js';
-import { MODES, MODE_IDS, MAX_PLAYERS } from './src/game.js';
+import { MODES, MODE_IDS, MAX_PLAYERS, MIN_QUESTIONS, MAX_QUESTIONS } from './src/game.js';
 import { generateQuestions, aiAvailable } from './src/ai.js';
-import { pickFromBank } from './src/questionBank.js';
+import { pickFromBank, BANK } from './src/questionBank.js';
 import { Storage } from './src/storage.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -67,6 +67,8 @@ app.get('/api/info', (req, res) => {
     ai: aiAvailable(),
     modes: MODES,
     maxPlayers: MAX_PLAYERS,
+    minQuestions: MIN_QUESTIONS,
+    maxQuestions: MAX_QUESTIONS,
     avatars: AVATARS,
     needsPassword: Boolean(HOST_PASSWORD),
     saving: storage.enabled,
@@ -223,32 +225,39 @@ async function handle(ws, msg) {
     case 'host:generate': {
       const room = hostRoom();
       if (room.generating) throw new Error('Vprašanja se še pripravljajo.');
-      const count = Math.min(30, Math.max(3, Number(msg.count) || 12));
+      const count = Math.min(MAX_QUESTIONS, Math.max(MIN_QUESTIONS, Number(msg.count) || 12));
       const modes = Array.isArray(msg.modes) && msg.modes.length ? msg.modes.filter((m) => MODE_IDS.includes(m)) : MODE_IDS;
       const theme = String(msg.theme || room.settings.theme || 'Splošna razgledanost').slice(0, 200);
       room.settings.theme = theme;
       room.generating = true;
       room.genError = null;
+      room.genProgress = { done: 0, total: count };
       room.changed();
       try {
         if (!aiAvailable()) throw new Error('NO_KEY');
-        const { questions, model, dropped, rounds } = await generateQuestions({
+        const { questions, model, dropped, rounds, errors } = await generateQuestions({
           theme,
           count,
           difficulty: String(msg.difficulty || 'srednja'),
           modes,
           tone: String(msg.tone || 'sproščen in duhovit'),
           avoid: msg.append ? room.questions.map((q) => q.text) : [],
+          onProgress: (done, total) => {
+            room.genProgress = { done, total };
+            room.changed();
+          },
         });
         if (msg.append) room.addQuestions(questions);
         else room.setQuestions(questions);
 
-        if (dropped.length) {
-          console.log(`[ai] "${theme}": ${questions.length}/${count} vprašanj v ${rounds} krogih, `
-            + `zavrnjenih ${dropped.length} (${[...new Set(dropped.map((d) => d.why))].join(', ')})`);
-        }
+        console.log(`[ai] "${theme}": ${questions.length}/${count} vprašanj v ${rounds} klicih`
+          + (dropped.length ? `, zavrnjenih ${dropped.length} (${[...new Set(dropped.map((d) => d.why))].join(', ')})` : '')
+          + (errors.length ? `, neuspelih klicev ${errors.length}: ${errors[0]}` : ''));
+
         const short = questions.length < count
-          ? ` Model je vrnil ${questions.length} namesto ${count} - dodaj jih z "Dodaj še".`
+          ? (errors.length
+            ? ` Del zahtev ni uspel (${errors[0]}) - manjkajoča dodaj z "Dodaj še".`
+            : ` Model je vrnil ${questions.length} namesto ${count} - dodaj jih z "Dodaj še".`)
           : '';
         relayToHost(room, {
           t: 'toast',
@@ -266,6 +275,7 @@ async function handle(ws, msg) {
         relayToHost(room, { t: 'toast', kind: 'warn', message: room.genError });
       } finally {
         room.generating = false;
+        room.genProgress = null;
         room.changed();
       }
       return;
@@ -273,11 +283,23 @@ async function handle(ws, msg) {
 
     case 'host:bank': {
       const room = hostRoom();
-      const count = Math.min(30, Math.max(3, Number(msg.count) || 12));
+      const count = Math.min(MAX_QUESTIONS, Math.max(MIN_QUESTIONS, Number(msg.count) || 12));
       const modes = Array.isArray(msg.modes) && msg.modes.length ? msg.modes.filter((m) => MODE_IDS.includes(m)) : MODE_IDS;
       room.setQuestions(pickFromBank(count, modes));
       room.settings.theme = 'Vgrajen nabor';
-      return room.changed();
+      room.changed();
+
+      // Vgrajen nabor je končen - povej, koliko ga sploh je, da videz ni napaka.
+      const available = BANK.filter((q) => modes.includes(q.mode)).length;
+      if (room.questions.length < count) {
+        send(ws, {
+          t: 'toast',
+          kind: 'warn',
+          message: `Vgrajen nabor ima za izbrane načine ${available} vprašanj - pripravil sem jih ${room.questions.length}. `
+            + 'Za več in za svojo tematiko uporabi "Ustvari vprašanja".',
+        });
+      }
+      return;
     }
 
     case 'host:weight': {
