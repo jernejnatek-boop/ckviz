@@ -109,3 +109,17 @@ export function store(key, value) {
 }
 
 export function pct(n, d) { return d ? Math.round((n / d) * 100) : 0; }
+
+/**
+ * Slovensko ujemanje s števnikom: 1 igralec, 2 igralca, 3 igralci, 5 igralcev.
+ * forms = [ednina, dvojina, 3-4, ostalo]
+ */
+export function sloCount(n, forms) {
+  const r100 = Math.abs(n) % 100;
+  const r10 = Math.abs(n) % 10;
+  const idx = r100 >= 11 && r100 <= 14 ? 3 : r10 === 1 ? 0 : r10 === 2 ? 1 : (r10 === 3 || r10 === 4) ? 2 : 3;
+  return `${n} ${forms[idx]}`;
+}
+
+export const IGRALCI = ['igralec', 'igralca', 'igralci', 'igralcev'];
+export const VPRASANJA = ['vprašanje', 'vprašanji', 'vprašanja', 'vprašanj'];

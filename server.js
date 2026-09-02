@@ -3,6 +3,7 @@
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 import { WebSocketServer } from 'ws';
@@ -12,15 +13,20 @@ import { RoomStore, AVATARS } from './src/rooms.js';
 import { MODES, MODE_IDS, MAX_PLAYERS } from './src/game.js';
 import { generateQuestions, aiAvailable } from './src/ai.js';
 import { pickFromBank } from './src/questionBank.js';
+import { Storage } from './src/storage.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
+const HOST_PASSWORD = process.env.HOST_PASSWORD || '';
+const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
+
+const storage = await new Storage().init();
+const store = new RoomStore(storage);
 
 const app = express();
-app.use(express.json({ limit: '256kb' }));
+app.set('trust proxy', true);
+app.use(express.json({ limit: '512kb' }));
 app.use(express.static(path.join(here, 'public'), { maxAge: '1h' }));
-
-const store = new RoomStore();
 
 function lanAddress() {
   for (const list of Object.values(os.networkInterfaces())) {
@@ -31,14 +37,37 @@ function lanAddress() {
   return null;
 }
 
+/**
+ * Naslov, ki ga telefoni dejansko lahko odprejo.
+ * Na spletu je to javni naslov strežnika, doma pa naslov v lokalnem omrežju.
+ */
+function publicOrigin(req) {
+  if (PUBLIC_URL) return PUBLIC_URL;
+  const host = req?.headers?.host || '';
+  const proto = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim()
+    || (req?.socket?.encrypted ? 'https' : 'http');
+  const local = /^(localhost|127\.|0\.0\.0\.0|\[::1\])/i.test(host);
+  if (host && !local) return `${proto}://${host}`;
+  const lan = lanAddress();
+  return lan ? `http://${lan}:${PORT}` : `http://${host || `localhost:${PORT}`}`;
+}
+
+function passwordOk(given) {
+  if (!HOST_PASSWORD) return true;
+  const a = Buffer.from(String(given || ''));
+  const b = Buffer.from(HOST_PASSWORD);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 app.get('/api/info', (req, res) => {
   res.json({
     ai: aiAvailable(),
     modes: MODES,
     maxPlayers: MAX_PLAYERS,
     avatars: AVATARS,
-    lan: lanAddress(),
-    port: PORT,
+    needsPassword: Boolean(HOST_PASSWORD),
+    saving: storage.enabled,
+    origin: publicOrigin(req),
   });
 });
 
@@ -56,10 +85,12 @@ app.get('/qr.png', async (req, res) => {
 // Kratka povezava za telefone: /p/ABCD
 app.get('/p/:code', (req, res) => res.sendFile(path.join(here, 'public', 'play.html')));
 
+app.get('/healthz', (req, res) => res.json({ ok: true, rooms: store.rooms.size }));
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/ws' });
 
-/** @type {Map<import('ws').WebSocket, {roomCode:string, role:'host'|'player', playerId?:string}>} */
+/** @type {Map<import('ws').WebSocket, {roomCode:string, role:'host'|'player', playerId?:string, origin:string}>} */
 const sockets = new Map();
 
 function send(ws, msg) {
@@ -67,6 +98,7 @@ function send(ws, msg) {
 }
 
 function broadcast(room) {
+  storage.saveRoom(room.toJSON());
   for (const [ws, meta] of sockets) {
     if (meta.roomCode !== room.code) continue;
     if (meta.role === 'host') send(ws, room.hostState());
@@ -80,12 +112,15 @@ function relayToHost(room, msg) {
   }
 }
 
-function fail(ws, message) {
-  send(ws, { t: 'error', message: String(message || 'Nekaj je šlo narobe.') });
+function fail(ws, message, code) {
+  send(ws, { t: 'error', message: String(message || 'Nekaj je šlo narobe.'), code });
 }
 
-wss.on('connection', (ws) => {
-  sockets.set(ws, { roomCode: null, role: null });
+const restored = store.restore(broadcast);
+if (restored) console.log(`[shramba] obnovljenih sob: ${restored}`);
+
+wss.on('connection', (ws, req) => {
+  sockets.set(ws, { roomCode: null, role: null, origin: publicOrigin(req) });
 
   ws.on('message', async (raw) => {
     let msg;
@@ -117,6 +152,10 @@ wss.on('connection', (ws) => {
   ws.on('error', () => {});
 });
 
+function sendLibrary(ws) {
+  send(ws, { t: 'library', packs: storage.listPacks(), games: storage.listGames(), saving: storage.enabled });
+}
+
 async function handle(ws, msg) {
   const meta = sockets.get(ws);
   const roomOf = () => {
@@ -134,6 +173,9 @@ async function handle(ws, msg) {
     if (meta.role !== 'host') throw new Error('Samo voditelj lahko to naredi.');
     return roomOf();
   };
+  const requireHost = () => {
+    if (meta.role !== 'host') throw new Error('Samo voditelj lahko to naredi.');
+  };
 
   switch (msg.t) {
     case 'ping':
@@ -141,20 +183,24 @@ async function handle(ws, msg) {
 
     // ---------- voditelj ----------
     case 'host:create': {
+      if (!passwordOk(msg.password)) return fail(ws, 'Napačno geslo voditelja.', 'auth');
       const room = store.create(broadcast);
       Object.assign(room.settings, sanitizeSettings(msg.settings));
       meta.roomCode = room.code;
       meta.role = 'host';
-      send(ws, { t: 'hostToken', code: room.code, hostToken: room.hostToken, ai: aiAvailable() });
+      send(ws, { t: 'hostToken', code: room.code, hostToken: room.hostToken, joinUrl: `${meta.origin}/p/${room.code}`, ai: aiAvailable() });
+      sendLibrary(ws);
       return send(ws, room.hostState());
     }
 
     case 'host:resume': {
+      if (!passwordOk(msg.password)) return fail(ws, 'Napačno geslo voditelja.', 'auth');
       const room = store.get(msg.code);
       if (!room || room.hostToken !== msg.hostToken) throw new Error('Te seje ni več. Ustvari novo sobo.');
       meta.roomCode = room.code;
       meta.role = 'host';
-      send(ws, { t: 'hostToken', code: room.code, hostToken: room.hostToken, ai: aiAvailable() });
+      send(ws, { t: 'hostToken', code: room.code, hostToken: room.hostToken, joinUrl: `${meta.origin}/p/${room.code}`, ai: aiAvailable() });
+      sendLibrary(ws);
       return send(ws, room.hostState());
     }
 
@@ -218,6 +264,56 @@ async function handle(ws, msg) {
       return room.setQuestions(rest);
     }
 
+    // ---------- knjižnica: shranjeni kvizi in odigrane igre ----------
+    case 'host:library':
+      requireHost();
+      return sendLibrary(ws);
+
+    case 'host:savePack': {
+      const room = hostRoom();
+      if (!storage.enabled) throw new Error('Shranjevanje na tem strežniku ni na voljo.');
+      const pack = storage.savePack({ name: msg.name, theme: room.settings.theme, questions: room.questions });
+      sendLibrary(ws);
+      return send(ws, { t: 'toast', kind: 'ok', message: `Shranjeno kot "${pack.name}".` });
+    }
+
+    case 'host:loadPack': {
+      const room = hostRoom();
+      const pack = storage.getPack(msg.id);
+      if (!pack) throw new Error('Tega kviza ni več.');
+      if (msg.append) room.addQuestions(pack.questions);
+      else room.setQuestions(pack.questions);
+      room.settings.theme = pack.theme || pack.name;
+      room.changed();
+      return send(ws, { t: 'toast', kind: 'ok', message: `Naložen kviz "${pack.name}".` });
+    }
+
+    case 'host:importPack': {
+      const room = hostRoom();
+      const questions = Array.isArray(msg.questions) ? msg.questions : [];
+      if (!questions.length) throw new Error('Datoteka ne vsebuje vprašanj.');
+      room.setQuestions(questions.map(({ mode, category, text, options, correct, explanation }) =>
+        ({ mode, category, text, options, correct, explanation })));
+      if (msg.theme) room.settings.theme = String(msg.theme).slice(0, 200);
+      room.changed();
+      if (storage.enabled && msg.keep) {
+        storage.savePack({ name: msg.name, theme: msg.theme, questions: room.questions });
+        sendLibrary(ws);
+      }
+      return send(ws, { t: 'toast', kind: 'ok', message: `Uvoženih ${room.questions.length} vprašanj.` });
+    }
+
+    case 'host:deletePack':
+      requireHost();
+      storage.deletePack(msg.id);
+      return sendLibrary(ws);
+
+    case 'host:deleteGame':
+      requireHost();
+      storage.deleteGame(msg.id);
+      return sendLibrary(ws);
+
+    // ---------- potek igre ----------
     case 'host:autopair':
       return hostRoom().autoPair();
 
@@ -230,14 +326,24 @@ async function handle(ws, msg) {
     case 'host:start':
       return hostRoom().start();
 
-    case 'host:next':
-      return hostRoom().next();
+    case 'host:next': {
+      const room = hostRoom();
+      const wasLast = room.index + 1 >= room.questions.length;
+      room.next();
+      if (wasLast && room.phase === 'ended') archive(room, ws);
+      return;
+    }
 
     case 'host:reveal':
       return hostRoom().reveal();
 
-    case 'host:end':
-      return hostRoom().end();
+    case 'host:end': {
+      const room = hostRoom();
+      const hadGame = room.history.length > 0;
+      room.end();
+      if (hadGame) archive(room, ws);
+      return;
+    }
 
     case 'host:lobby':
       return hostRoom().backToLobby();
@@ -299,6 +405,18 @@ async function handle(ws, msg) {
   }
 }
 
+/** Odigrano igro zapišemo v zgodovino - a le enkrat. */
+function archive(room, ws) {
+  if (room.archived || !room.history.length) return;
+  room.archived = true;
+  try {
+    storage.saveGame(room.archive());
+    sendLibrary(ws);
+  } catch (err) {
+    console.warn(`[shramba] igre ni bilo mogoče shraniti: ${err.message}`);
+  }
+}
+
 function sanitizeSettings(s = {}) {
   const out = {};
   if (s.timeLimit != null) out.timeLimit = Math.min(120, Math.max(10, Number(s.timeLimit) || 30));
@@ -314,9 +432,25 @@ setInterval(() => {
   }
 }, 25000).unref?.();
 
+// Ob ugašanju zapišemo vse na disk - ponudniki dajo nekaj sekund časa.
+let closing = false;
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, async () => {
+    if (closing) process.exit(0);
+    closing = true;
+    console.log(`\n${sig} - shranjujem in zapiram ...`);
+    await storage.flushAll();
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 3000).unref?.();
+  });
+}
+
 server.listen(PORT, () => {
+  const lan = lanAddress();
   console.log(`\n  CKViz teče na http://localhost:${PORT}`);
-  console.log(`  Velik zaslon (PC): http://localhost:${PORT}/host.html`);
-  console.log(`  Telefoni:          http://<IP-tvojega-racunalnika>:${PORT}/`);
-  console.log(`  Claude API:        ${aiAvailable() ? 'na voljo ✅' : 'ni ključa - vgrajena vprašanja ⚠️'}\n`);
+  console.log(`  Velik zaslon (PC): ${PUBLIC_URL || `http://localhost:${PORT}`}/host.html`);
+  console.log(`  Telefoni:          ${PUBLIC_URL || (lan ? `http://${lan}:${PORT}` : `http://localhost:${PORT}`)}`);
+  console.log(`  Claude API:        ${aiAvailable() ? 'na voljo ✅' : 'ni ključa - vgrajena vprašanja ⚠️'}`);
+  console.log(`  Shranjevanje:      ${storage.enabled ? storage.dir : 'izklopljeno ⚠️'}`);
+  console.log(`  Geslo voditelja:   ${HOST_PASSWORD ? 'nastavljeno 🔒' : 'ni nastavljeno - kdorkoli lahko odpre velik zaslon ⚠️'}\n`);
 });

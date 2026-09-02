@@ -1,14 +1,19 @@
 // Odjemalec za velik zaslon (PC): priprava kviza, potek in statistika.
 
-import { el, h, clear, Wire, toast, burst, store, OPT_GLYPHS, pct } from '/js/common.js';
+import { el, h, clear, Wire, toast, burst, store, OPT_GLYPHS, pct, sloCount, IGRALCI, VPRASANJA } from '/js/common.js';
 
 const app = el('#app');
 const ctrl = el('#ctrl');
 
-let info = { ai: false, lan: null, port: 3000 };
+let info = { ai: false, needsPassword: false, saving: false };
 let state = null;
 let joinUrl = '';
 let ticker = null;
+let library = { packs: [], games: [], saving: false };
+let password = store('ckviz:pw') || '';
+let authNeeded = false;
+let infoLoaded = false;
+let socketReady = false;
 
 const setup = store('ckviz:setup') || {
   theme: 'Splošna razgledanost',
@@ -20,41 +25,69 @@ const setup = store('ckviz:setup') || {
   modes: ['trivia', 'multi', 'sync', 'know'],
 };
 
-fetch('/api/info').then((r) => r.json()).then((i) => { info = i; render(); }).catch(() => {});
+fetch('/api/info')
+  .then((r) => r.json())
+  .then((i) => { info = i; })
+  .catch(() => {})
+  .finally(() => { infoLoaded = true; maybeOpen(); });
 
 const wire = new Wire({
-  onOpen: () => {
-    const saved = store('ckviz:host');
-    if (saved?.code) wire.send({ t: 'host:resume', code: saved.code, hostToken: saved.hostToken });
-    else wire.send({ t: 'host:create', settings: { timeLimit: setup.timeLimit, theme: setup.theme, hotRound: setup.hotRound } });
-  },
+  onOpen: () => { socketReady = true; maybeOpen(); },
   onStatus: () => {},
   onMessage: (msg) => {
     if (msg.t === 'error') {
+      if (msg.code === 'auth') {
+        authNeeded = true;
+        password = '';
+        store('ckviz:pw', null);
+        render();
+        return toast(msg.message, 'err');
+      }
       if (/seje ni več/i.test(msg.message)) {
         store('ckviz:host', null);
-        wire.send({ t: 'host:create', settings: { timeLimit: setup.timeLimit, theme: setup.theme, hotRound: setup.hotRound } });
+        wire.send({ t: 'host:create', password, settings: { timeLimit: setup.timeLimit, theme: setup.theme, hotRound: setup.hotRound } });
         return;
       }
       return toast(msg.message, 'err');
     }
+    if (msg.t === 'library') {
+      library = { packs: msg.packs || [], games: msg.games || [], saving: Boolean(msg.saving) };
+      return render();
+    }
     if (msg.t === 'toast') return toast(msg.message, msg.kind === 'ok' ? 'ok' : 'warn');
     if (msg.t === 'reaction') return burst(msg.emoji, 3);
     if (msg.t === 'hostToken') {
+      authNeeded = false;
+      if (password) store('ckviz:pw', password);
       store('ckviz:host', { code: msg.code, hostToken: msg.hostToken });
-      const base = info.lan ? `http://${info.lan}:${info.port}` : location.origin;
-      joinUrl = `${base}/p/${msg.code}`;
+      joinUrl = msg.joinUrl || `${location.origin}/p/${msg.code}`;
       return;
     }
     if (msg.t === 'room') {
       const prev = state;
       state = msg;
-      if (!joinUrl) joinUrl = `${info.lan ? `http://${info.lan}:${info.port}` : location.origin}/p/${msg.code}`;
+      if (!joinUrl) joinUrl = `${location.origin}/p/${msg.code}`;
       if (prev?.phase === 'question' && msg.phase === 'reveal') celebrate(msg);
       render();
     }
   },
 });
+
+/** Sejo odpremo šele, ko vemo, ali strežnik sploh zahteva geslo. */
+function maybeOpen() {
+  if (!socketReady || !infoLoaded) return;
+  if (info.needsPassword && !password) {
+    authNeeded = true;
+    return render();
+  }
+  openSession();
+}
+
+function openSession() {
+  const saved = store('ckviz:host');
+  if (saved?.code) wire.send({ t: 'host:resume', code: saved.code, hostToken: saved.hostToken, password });
+  else wire.send({ t: 'host:create', password, settings: { timeLimit: setup.timeLimit, theme: setup.theme, hotRound: setup.hotRound } });
+}
 
 function celebrate(s) {
   const best = s.reveal?.pairs?.filter((p) => p.match) || [];
@@ -66,6 +99,7 @@ function celebrate(s) {
 function render() {
   clear(app);
   clear(ctrl);
+  if (authNeeded) return app.append(viewAuth());
   if (!state) {
     app.append(h('div', { class: 'card center' }, h('h2', {}, 'Povezujem ...')));
     return;
@@ -74,6 +108,29 @@ function render() {
   else if (state.phase === 'question') { app.append(viewQuestion()); controlsQuestion(); }
   else if (state.phase === 'reveal') { app.append(viewReveal()); controlsReveal(); }
   else if (state.phase === 'ended') { app.append(viewEnd()); controlsEnd(); }
+}
+
+function viewAuth() {
+  const input = h('input', { type: 'password', id: 'pw', placeholder: 'geslo', autofocus: true });
+  return h('div', { style: 'max-width:420px; margin:12vh auto' },
+    h('div', { class: 'brand', style: 'justify-content:center; margin-bottom:24px' },
+      h('div', { class: 'brand-mark' }, '💘'),
+      h('div', {}, h('div', { class: 'brand-name' }, 'CKViz'), h('div', { class: 'brand-sub' }, 'velik zaslon'))),
+    h('form', {
+      class: 'card stack',
+      onsubmit: (e) => {
+        e.preventDefault();
+        password = input.value;
+        authNeeded = false;
+        openSession();
+        render();
+        toast('Odpiram sobo ...');
+      },
+    },
+      h('h2', { style: 'font-size:20px' }, 'Geslo voditelja'),
+      h('p', { class: 'muted small' }, 'Ta strežnik je zaščiten, da igre ne more odpreti kdorkoli.'),
+      input,
+      h('button', { class: 'btn primary big', type: 'submit' }, 'Odpri')));
 }
 
 function header(right) {
@@ -97,8 +154,7 @@ function viewLobby() {
         h('div', { class: 'code-big' }, state.code),
         h('p', { class: 'muted', style: 'margin-top:10px; font-size:16px' },
           'Skeniraj QR ali odpri ', h('b', { style: 'color:var(--txt)' }, joinUrl.replace(/^https?:\/\//, ''))),
-        info.lan ? null : h('p', { class: 'small', style: 'margin-top:6px; color:var(--amber)' },
-          'Opozorilo: nisem našel naslova v omrežju - telefoni morajo biti na istem WiFi kot ta računalnik.'))));
+        joinHint())));
 
   const players = h('div', { class: 'card' },
     h('div', { class: 'row spread' },
@@ -200,7 +256,129 @@ function viewLobby() {
   return h('div', {},
     header(h('span', { class: 'chip' }, `🕒 ${state.settings.timeLimit} s`)),
     h('div', { class: 'grid cols-2' }, joinCard, players),
-    h('div', { class: 'grid cols-2', style: 'margin-top:18px' }, gen, preview));
+    h('div', { class: 'grid cols-2', style: 'margin-top:18px' }, gen, preview),
+    h('div', { class: 'grid cols-2', style: 'margin-top:18px' }, viewLibrary(), viewHistory()));
+}
+
+
+// ---------- knjižnica ----------
+
+function fmtDate(ms) {
+  return new Date(ms).toLocaleString('sl-SI', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function downloadPack() {
+  const payload = {
+    format: 'ckviz-pack-1',
+    name: state.settings.theme,
+    theme: state.settings.theme,
+    exportedAt: new Date().toISOString(),
+    questions: (state.preview || []).map(({ mode, category, text, options, correct, explanation }) =>
+      ({ mode, category, text, options, correct, explanation })),
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `ckviz-${slug(state.settings.theme)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function slug(text) {
+  return String(text || 'kviz').toLowerCase()
+    .replace(/[čć]/g, 'c').replace(/š/g, 's').replace(/ž/g, 'z').replace(/đ/g, 'd')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'kviz';
+}
+
+function importPack(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const parsed = JSON.parse(String(reader.result));
+      const questions = Array.isArray(parsed) ? parsed : parsed.questions;
+      if (!Array.isArray(questions) || !questions.length) throw new Error('ni vprašanj');
+      wire.send({ t: 'host:importPack', questions, name: parsed.name, theme: parsed.theme || parsed.name, keep: library.saving });
+    } catch (err) {
+      toast(`Datoteke ni bilo mogoče prebrati (${err.message}).`, 'err');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function viewLibrary() {
+  const fileInput = h('input', {
+    type: 'file', accept: 'application/json,.json', style: 'display:none',
+    onchange: (e) => { if (e.target.files[0]) importPack(e.target.files[0]); e.target.value = ''; },
+  });
+
+  const saveBtn = h('button', {
+    class: 'btn sm', disabled: !state.questionCount || !library.saving,
+    onclick: () => {
+      const name = prompt('Ime kviza:', state.settings.theme || 'Kviz');
+      if (name) wire.send({ t: 'host:savePack', name });
+    },
+  }, '💾 Shrani ta kviz');
+
+  return h('div', { class: 'card' },
+    h('div', { class: 'row spread wrap-row' },
+      h('div', { class: 'tiny' }, `Moji kvizi (${library.packs.length})`),
+      h('div', { class: 'row', style: 'gap:8px' },
+        saveBtn,
+        h('button', { class: 'btn sm ghost', disabled: !state.questionCount, onclick: downloadPack }, '⬇ Izvozi'),
+        h('button', { class: 'btn sm ghost', onclick: () => fileInput.click() }, '⬆ Uvozi'))),
+    fileInput,
+    !library.saving
+      ? h('p', { class: 'small', style: 'margin-top:12px; color:var(--amber)' },
+          'Ta strežnik nima trajnega diska - kvizi se ne shranjujejo. Uporabi Izvozi/Uvozi.')
+      : null,
+    h('div', { class: 'qlist', style: 'margin-top:12px' },
+      library.packs.length
+        ? library.packs.map((p) => h('div', { class: 'qrow' },
+            h('div', { class: 'grow' },
+              h('div', { style: 'font-weight:700' }, p.name),
+              h('div', { class: 'muted', style: 'font-size:12px; margin-top:3px' },
+                `${sloCount(p.count, VPRASANJA)} · ${p.modes.map(modeName).join(' ')} · ${fmtDate(p.createdAt)}`)),
+            h('div', { class: 'row', style: 'gap:6px' },
+              h('button', { class: 'btn sm', onclick: () => wire.send({ t: 'host:loadPack', id: p.id }) }, 'Naloži'),
+              h('button', { class: 'btn sm ghost', title: 'Dodaj k trenutnim', onclick: () => wire.send({ t: 'host:loadPack', id: p.id, append: true }) }, '+'),
+              h('span', { class: 'del', onclick: () => { if (confirm(`Izbrišem "${p.name}"?`)) wire.send({ t: 'host:deletePack', id: p.id }); } }, '✕'))))
+        : h('p', { class: 'muted small' }, 'Še ni shranjenih kvizov. Ustvari vprašanja in klikni "Shrani ta kviz".')));
+}
+
+function viewHistory() {
+  return h('div', { class: 'card' },
+    h('div', { class: 'tiny' }, `Odigrane igre (${library.games.length})`),
+    h('div', { class: 'qlist', style: 'margin-top:12px' },
+      library.games.length
+        ? library.games.map((g) => {
+            const winner = g.couples?.[0];
+            return h('div', { class: 'qrow' },
+              h('div', { class: 'grow' },
+                h('div', { style: 'font-weight:700' }, g.theme || 'Kviz'),
+                h('div', { class: 'muted', style: 'font-size:12px; margin-top:3px' },
+                  `${fmtDate(g.playedAt)} · ${sloCount(g.playerCount, IGRALCI)} · ${sloCount(g.questionCount, VPRASANJA)}`),
+                winner ? h('div', { style: 'font-size:13px; margin-top:4px' },
+                  `🥇 ${winner.emojis?.join('') || ''} ${winner.name} · ${winner.score} točk${winner.chemistry != null ? ` · kemija ${winner.chemistry} %` : ''}`) : null,
+                (g.awards || []).length ? h('div', { class: 'muted', style: 'font-size:11px; margin-top:4px' },
+                  g.awards.map((a) => `${a.emoji} ${a.name}`).join(' · ')) : null),
+              h('span', { class: 'del', onclick: () => { if (confirm('Izbrišem ta zapis?')) wire.send({ t: 'host:deleteGame', id: g.id }); } }, '✕'));
+          })
+        : h('p', { class: 'muted small' }, 'Ko odigrate prvo igro, se rezultat shrani sem.')));
+}
+
+/** Namig pod QR kodo - drugačen doma (WiFi) in drugačen na spletu. */
+function joinHint() {
+  if (/^https:/.test(joinUrl)) {
+    return h('p', { class: 'small muted', style: 'margin-top:6px' },
+      'Telefoni so lahko kjerkoli - dovolj je internet.');
+  }
+  if (/^http:\/\/(localhost|127\.)/.test(joinUrl)) {
+    return h('p', { class: 'small', style: 'margin-top:6px; color:var(--amber)' },
+      'Ne najdem naslova tega računalnika v omrežju. Telefoni s te povezave ne bodo mogli vstopiti - '
+      + 'nastavi PUBLIC_URL ali preveri omrežno povezavo.');
+  }
+  return h('p', { class: 'small', style: 'margin-top:6px; color:var(--amber)' },
+    'Telefoni morajo biti na istem WiFi kot ta računalnik.');
 }
 
 function genPayload() {
@@ -432,7 +610,7 @@ function viewEnd() {
 
 function controlsLobby() {
   ctrl.append(
-    h('span', { class: 'chip' }, `${state.players.length} igralcev · ${state.questionCount} vprašanj`),
+    h('span', { class: 'chip' }, `${sloCount(state.players.length, IGRALCI)} · ${sloCount(state.questionCount, VPRASANJA)}`),
     h('button', {
       class: 'btn primary', disabled: !state.questionCount || !state.players.length,
       onclick: () => wire.send({ t: 'host:start' }),

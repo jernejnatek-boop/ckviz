@@ -470,6 +470,73 @@ export class Room {
     return out;
   }
 
+  // ---------- shranjevanje ----------
+
+  /** Posnetek sobe za disk - dovolj, da igra preživi ponovni zagon strežnika. */
+  toJSON() {
+    return {
+      code: this.code,
+      hostToken: this.hostToken,
+      createdAt: this.createdAt,
+      touched: this.touched,
+      settings: this.settings,
+      phase: this.phase,
+      index: this.index,
+      questions: this.questions,
+      history: this.history,
+      players: [...this.players.values()],
+      submissions: [...this.submissions].map(([i, m]) => [i, [...m]]),
+    };
+  }
+
+  static fromJSON(snap, onChange) {
+    const room = new Room(onChange);
+    room.code = snap.code;
+    room.hostToken = snap.hostToken;
+    room.createdAt = snap.createdAt || Date.now();
+    room.touched = snap.touched || Date.now();
+    room.settings = { ...DEFAULT_SETTINGS, ...(snap.settings || {}) };
+    room.questions = snap.questions || [];
+    room.history = snap.history || [];
+    room.index = snap.index ?? -1;
+    room.players = new Map((snap.players || []).map((p) => [p.id, { ...p, connected: false }]));
+    room.submissions = new Map((snap.submissions || []).map(([i, entries]) => [i, new Map(entries)]));
+
+    // Sredi vprašanja po ponovnem zagonu: isto vprašanje odpremo znova s
+    // svežim časovnikom, oddani odgovori ostanejo.
+    room.phase = snap.phase === 'question' ? 'question' : snap.phase || 'lobby';
+    if (room.phase === 'question') {
+      room.questionStartedAt = Date.now();
+      room.timer = setTimeout(() => room.reveal(), room.settings.timeLimit * 1000 + 500);
+    }
+    return room;
+  }
+
+  /** Zapis odigrane igre za zgodovino. */
+  archive() {
+    return {
+      playedAt: Date.now(),
+      code: this.code,
+      theme: this.settings.theme,
+      questionCount: this.questions.length,
+      playerCount: this.players.size,
+      couples: this.coupleScores(),
+      awards: this.awards(),
+      questions: this.history.map((h) => ({
+        mode: h.question.mode,
+        category: h.question.category,
+        text: h.question.text,
+        options: h.question.options,
+        correct: h.question.correct,
+        hot: Boolean(h.question.hot),
+        distribution: h.distribution,
+        matches: h.pairs.filter((p) => p.match).length,
+        hits: h.perPlayer.filter((p) => p.correct === true).length,
+        answered: h.perPlayer.filter((p) => p.choice != null).length,
+      })),
+    };
+  }
+
   // ---------- pogledi ----------
 
   hostState() {
@@ -577,24 +644,46 @@ function stripMeta(q) {
 }
 
 export class RoomStore {
-  constructor() {
+  constructor(storage = null) {
     this.rooms = new Map();
+    this.storage = storage;
     setInterval(() => this.sweep(), 1000 * 60 * 10).unref?.();
   }
+
+  /** Sobe s prejšnjega zagona vrnemo v igro; potekle zavržemo. */
+  restore(onChange) {
+    if (!this.storage) return 0;
+    let n = 0;
+    for (const snap of this.storage.allRooms()) {
+      try {
+        const room = Room.fromJSON(snap, onChange);
+        if (room.expired()) { room.clearTimers(); this.storage.dropRoom(snap.code); continue; }
+        this.rooms.set(room.code, room);
+        n++;
+      } catch {
+        this.storage.dropRoom(snap.code);
+      }
+    }
+    return n;
+  }
+
   create(onChange) {
     let room = new Room(onChange);
     while (this.rooms.has(room.code)) room = new Room(onChange);
     this.rooms.set(room.code, room);
     return room;
   }
+
   get(code) {
     return this.rooms.get(String(code || '').toUpperCase().trim()) || null;
   }
+
   sweep() {
     for (const [code, room] of this.rooms) {
       if (room.expired()) {
         room.clearTimers();
         this.rooms.delete(code);
+        this.storage?.dropRoom(code);
       }
     }
   }

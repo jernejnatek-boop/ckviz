@@ -1,0 +1,42 @@
+# Postavitev na Fly.io (https://fly.io)
+#
+#   fly launch --no-deploy --copy-config
+#   fly volumes create ckviz_data --size 1
+#   fly secrets set ANTHROPIC_API_KEY=sk-ant-... HOST_PASSWORD=nekaj-mocnega
+#   fly deploy
+#
+app = "ckviz"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  CKVIZ_DATA_DIR = "/data"
+  NODE_ENV = "production"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.http_options.response]
+    pristine = true
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "4s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/healthz"
+
+[mounts]
+  source = "ckviz_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
