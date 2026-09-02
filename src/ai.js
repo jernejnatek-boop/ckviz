@@ -8,7 +8,9 @@ import { MODE_IDS, MODES } from './game.js';
 
 const MODEL = process.env.CKVIZ_MODEL || 'claude-opus-5';
 const FALLBACK_MODEL = process.env.CKVIZ_FALLBACK_MODEL || 'claude-opus-4-8';
-const EFFORT = process.env.CKVIZ_EFFORT || 'medium';
+// Vprašanja se pišejo enkrat na krog, zato je kakovost pomembnejša od hitrosti.
+// Z CKVIZ_EFFORT=low ali medium je generiranje hitrejše, a bolj plehko.
+const EFFORT = process.env.CKVIZ_EFFORT || 'high';
 
 let client = null;
 export function aiAvailable() {
@@ -92,50 +94,63 @@ Pravila kakovosti:
 - Vprašanja za pare naj bodo topla in zabavna, nikoli žaljiva, spolno eksplicitna ali taka, ki bi lahko sprožila resen prepir.
 - Dejstva v načinih trivia in multi morajo biti preverljivo resnična.`;
 
-function buildPrompt({ theme, count, difficulty, modes, tone, avoid }) {
-  const mix = modes.map((m) => `- ${m} (${MODES[m].label}): ${MODES[m].tagline}`).join('\n');
+function buildPrompt({ theme, count, difficulty, modes, tone, avoid, topUp }) {
+  const mix = modes.map((m) => `- "${m}" (${MODES[m].label}): ${MODES[m].tagline}`).join('\n');
   const avoidLine = avoid?.length
-    ? `\n\nTa vprašanja so že bila uporabljena, ne ponavljaj jih niti po vsebini:\n${avoid.map((t) => `- ${t}`).join('\n')}`
+    ? `\n\nTA VPRAŠANJA SO ŽE UPORABLJENA. Ne ponovi jih niti po vsebini, niti z drugimi besedami:\n${avoid.map((t) => `- ${t}`).join('\n')}`
     : '';
-  return `Sestavi ${count} vprašanj za en krog kviza.
+  const topUpLine = topUp
+    ? `\nTo je dopolnitev kroga - nekaj prejšnjih vprašanj ni bilo uporabnih. Bodi še posebej dosleden pri obliki: natanko štiri možnosti in pravilno izpolnjeno polje "correct".\n`
+    : '';
 
-Tematika: ${theme}
+  return `TEMATIKA KROGA: "${theme}"
+
+Sestavi natanko ${count} vprašanj za en krog kviza za pare na to tematiko.
+${topUpLine}
+ZAHTEVA GLEDE TEMATIKE (najpomembnejša):
+- Vsako posamezno vprašanje se mora navezovati na "${theme}". Nobenega splošnega vprašanja, ki bi lahko stalo v katerem koli drugem kvizu.
+- To velja tudi za načina "sync" in "know", kjer ni pravilnega odgovora: tam sestavi osebno vprašanje, ki izhaja iz te tematike. (Primer: pri tematiki "potovanja" je dobro vprašanje "Kaj prvo spakiraš v kovček?", slabo pa "Kaj narediš, ko prideš domov?".)
+- Če je tematika ozka, jo razširi na sosednja področja, a je ne zapusti.
+- Polje "category" naj imenuje podpodročje znotraj tematike, ne splošne kategorije. (Pri tematiki "90. leta" npr. "glasba 90. let", ne "Glasba".)
+
 Zahtevnost dejstvenih vprašanj: ${difficulty}
 Ton: ${tone}
 
 Uporabi samo te načine, čim bolj enakomerno premešane:
-${mix}
-
-Vprašanja naj sledijo tematiki tudi v načinih sync in know - če je tema npr. "potovanja", naj bodo osebna vprašanja o potovanjih.${avoidLine}
+${mix}${avoidLine}
 
 Odgovori IZKLJUČNO z JSON objektom v tej obliki, brez besedila okoli njega:
 {"questions":[{"mode":"trivia","category":"...","text":"...","options":["...","...","...","..."],"correct":[0],"explanation":"..."}]}
-Polje "options" ima vedno natanko štiri elemente.`;
+
+Obvezno pri vsakem vprašanju:
+- "options" ima natanko 4 elemente,
+- "correct" ima pri "trivia" natanko 1 indeks, pri "multi" 2 ali 3, pri "sync" in "know" pa je prazen seznam,
+- v odgovoru je natanko ${count} vprašanj.`;
 }
 
-function normalize(raw, allowedModes) {
+function normalize(raw, allowedModes, seen) {
   const out = [];
-  const seen = new Set();
+  const dropped = [];
   for (const q of raw || []) {
-    if (!q || typeof q.text !== 'string') continue;
+    const drop = (why) => dropped.push({ why, text: String(q?.text || '').slice(0, 60) });
+    if (!q || typeof q.text !== 'string' || !q.text.trim()) { drop('brez besedila'); continue; }
     const mode = allowedModes.includes(q.mode) ? q.mode : allowedModes[0];
     const options = (q.options || []).map((o) => String(o).trim()).filter(Boolean);
-    if (options.length !== 4) continue;
+    if (options.length !== 4) { drop(`${options.length} možnosti namesto 4`); continue; }
     const key = q.text.trim().toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (seen.has(key)) { drop('podvojeno'); continue; }
 
     const def = MODES[mode];
-    let correct = (q.correct || []).filter((i) => Number.isInteger(i) && i >= 0 && i < 4);
-    correct = [...new Set(correct)];
+    let correct = [...new Set((q.correct || []).filter((i) => Number.isInteger(i) && i >= 0 && i < 4))];
     if (def.hasCorrect) {
-      if (correct.length === 0) continue;
+      if (correct.length === 0) { drop('manjka pravilni odgovor'); continue; }
       if (!def.multi) correct = [correct[0]];
-      if (def.multi && correct.length === 4) continue;
+      if (def.multi && correct.length === 4) { drop('vsi odgovori označeni pravilni'); continue; }
     } else {
       correct = [];
     }
 
+    seen.add(key);
     out.push({
       mode,
       category: String(q.category || '').trim() || 'Splošno',
@@ -145,7 +160,7 @@ function normalize(raw, allowedModes) {
       explanation: String(q.explanation || '').trim(),
     });
   }
-  return out;
+  return { questions: out, dropped };
 }
 
 /** Iz napake SDK potegne berljivo sporočilo namesto celotnega JSON telesa. */
@@ -176,25 +191,14 @@ function extractJson(message) {
 }
 
 /**
- * Generira vprašanja s Claudom. Vrne {questions, source}.
- * Ob napaki vrže Error s sporočilom v slovenščini.
+ * En klic modela. Če strežnik zavrne shemo, poskusi brez nje; če varnostni
+ * klasifikator zavrne temo, poskusi z rezervnim modelom.
  */
-export async function generateQuestions({
-  theme,
-  count = 12,
-  difficulty = 'srednja',
-  modes = MODE_IDS,
-  tone = 'sproščen in duhovit',
-  avoid = [],
-} = {}) {
-  const allowed = modes.filter((m) => MODE_IDS.includes(m));
-  const useModes = allowed.length ? allowed : MODE_IDS;
-  const c = getClient();
-
+async function askModel(client, promptArgs) {
   const base = {
     max_tokens: 16000,
     system: SYSTEM,
-    messages: [{ role: 'user', content: buildPrompt({ theme, count, difficulty, modes: useModes, tone, avoid }) }],
+    messages: [{ role: 'user', content: buildPrompt(promptArgs) }],
   };
   const withSchema = {
     ...base,
@@ -205,38 +209,90 @@ export async function generateQuestions({
   let request = withSchema;
   let message;
   try {
-    message = await c.messages.create({ ...request, model: MODEL });
+    message = await client.messages.create({ ...request, model: MODEL });
   } catch (err) {
     // Če strežnik zavrne samo shemo, vprašanja vseeno dobimo - obliko zahteva
     // že navodilo, pravilnost pa preveri normalize().
-    if (isSchemaError(err)) {
-      console.warn(`[ai] strežnik je zavrnil JSON shemo (${apiMessage(err)}) - nadaljujem brez nje.`);
-      request = withoutSchema;
-      try {
-        message = await c.messages.create({ ...request, model: MODEL });
-      } catch (err2) {
-        throw new Error(`Klic Claude API ni uspel: ${apiMessage(err2)}`);
-      }
-    } else {
-      throw new Error(`Klic Claude API ni uspel: ${apiMessage(err)}`);
+    if (!isSchemaError(err)) throw new Error(`Klic Claude API ni uspel: ${apiMessage(err)}`);
+    console.warn(`[ai] strežnik je zavrnil JSON shemo (${apiMessage(err)}) - nadaljujem brez nje.`);
+    request = withoutSchema;
+    try {
+      message = await client.messages.create({ ...request, model: MODEL });
+    } catch (err2) {
+      throw new Error(`Klic Claude API ni uspel: ${apiMessage(err2)}`);
     }
   }
 
-  // Varnostni klasifikator lahko zavrne zahtevo - takrat poskusimo z drugim modelom.
   if (message.stop_reason === 'refusal') {
-    message = await c.messages.create({ ...request, model: FALLBACK_MODEL });
+    message = await client.messages.create({ ...request, model: FALLBACK_MODEL });
     if (message.stop_reason === 'refusal') {
       throw new Error('Model je zavrnil to tematiko. Poskusi z drugačno temo.');
     }
   }
+  if (message.stop_reason === 'max_tokens') {
+    console.warn('[ai] odgovor je bil odrezan pri max_tokens - zmanjšaj število vprašanj.');
+  }
+  return message;
+}
 
-  const parsed = extractJson(message);
-  const questions = normalize(parsed.questions, useModes);
-  if (!questions.length) throw new Error('Claude ni vrnil uporabnih vprašanj. Poskusi znova.');
+/**
+ * Generira vprašanja s Claudom. Model včasih vrne manj vprašanj, kot smo
+ * zahtevali, nekaj pa jih zavrne tudi preverjanje oblike - zato krog po
+ * potrebi dopolnimo z dodatnimi klici.
+ */
+export async function generateQuestions({
+  theme,
+  count = 12,
+  difficulty = 'srednja',
+  modes = MODE_IDS,
+  tone = 'sproščen in duhovit',
+  avoid = [],
+  maxRounds = 3,
+} = {}) {
+  const allowed = modes.filter((m) => MODE_IDS.includes(m));
+  const useModes = allowed.length ? allowed : MODE_IDS;
+  const client = getClient();
+
+  const collected = [];
+  const seen = new Set(avoid.map((t) => String(t).trim().toLowerCase()));
+  const droppedAll = [];
+  let model = MODEL;
+  let rounds = 0;
+
+  while (collected.length < count && rounds < maxRounds) {
+    const missing = count - collected.length;
+    const message = await askModel(client, {
+      theme,
+      // Ob dopolnjevanju prosimo za nekaj rezerve, da ne rabimo še enega kroga.
+      count: rounds === 0 ? count : Math.min(missing + 2, 10),
+      difficulty,
+      modes: useModes,
+      tone,
+      avoid: [...avoid, ...collected.map((q) => q.text)],
+      topUp: rounds > 0,
+    });
+    model = message.model || model;
+
+    const parsed = extractJson(message);
+    const { questions, dropped } = normalize(parsed.questions, useModes, seen);
+    droppedAll.push(...dropped);
+    for (const q of questions) {
+      if (collected.length >= count) break;
+      collected.push(q);
+    }
+    rounds++;
+
+    // Če krog ni prinesel ničesar uporabnega, nadaljnji poskusi nimajo smisla.
+    if (!questions.length) break;
+  }
+
+  if (!collected.length) throw new Error('Claude ni vrnil uporabnih vprašanj. Poskusi znova.');
 
   return {
-    questions: questions.slice(0, count),
-    usage: message.usage,
-    model: message.model,
+    questions: collected.slice(0, count),
+    model,
+    requested: count,
+    rounds,
+    dropped: droppedAll,
   };
 }

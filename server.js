@@ -232,7 +232,7 @@ async function handle(ws, msg) {
       room.changed();
       try {
         if (!aiAvailable()) throw new Error('NO_KEY');
-        const { questions, model } = await generateQuestions({
+        const { questions, model, dropped, rounds } = await generateQuestions({
           theme,
           count,
           difficulty: String(msg.difficulty || 'srednja'),
@@ -242,7 +242,19 @@ async function handle(ws, msg) {
         });
         if (msg.append) room.addQuestions(questions);
         else room.setQuestions(questions);
-        relayToHost(room, { t: 'toast', kind: 'ok', message: `Claude (${model}) je pripravil ${questions.length} vprašanj.` });
+
+        if (dropped.length) {
+          console.log(`[ai] "${theme}": ${questions.length}/${count} vprašanj v ${rounds} krogih, `
+            + `zavrnjenih ${dropped.length} (${[...new Set(dropped.map((d) => d.why))].join(', ')})`);
+        }
+        const short = questions.length < count
+          ? ` Model je vrnil ${questions.length} namesto ${count} - dodaj jih z "Dodaj še".`
+          : '';
+        relayToHost(room, {
+          t: 'toast',
+          kind: questions.length < count ? 'warn' : 'ok',
+          message: `Claude je na temo "${theme}" pripravil ${questions.length} vprašanj.${short}`,
+        });
       } catch (err) {
         const noKey = err?.message === 'NO_KEY';
         const fallback = pickFromBank(count, modes);
