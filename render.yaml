@@ -1,17 +1,27 @@
 # Postavitev na Render (https://render.com)
 #
-# 1. Potisni to kodo na GitHub.
-# 2. Na Renderju: New -> Blueprint -> izberi ta repozitorij.
-# 3. Vpiši ANTHROPIC_API_KEY in HOST_PASSWORD (Render ju vpraša ob prvi postavitvi).
+# 1. Na Renderju: New -> Blueprint -> izberi repozitorij jernejnatek-boop/ckviz.
+# 2. Render prebere to datoteko in vpraša za ANTHROPIC_API_KEY in HOST_PASSWORD.
+# 3. Velik zaslon je nato na https://<ime>.onrender.com/host.html
 #
-# Opomba: trajni disk (spodaj) zahteva plačljiv načrt. Na brezplačnem načrtu
-# odstrani razdelek "disk" in "CKVIZ_DATA_DIR" - aplikacija bo delovala,
-# a se shranjeni kvizi izgubijo ob vsakem ponovnem zagonu (uporabi Izvozi/Uvozi).
+# Brezplačni načrt nima trajnega diska: shranjeni kvizi in zgodovina iger se
+# izgubijo ob vsakem ponovnem zagonu, zato je v vmesniku vklopljeno opozorilo
+# in gumb "Izvozi". Strežnik uspava po ~15 minutah brez prometa - dokler je
+# velik zaslon odprt, promet teče in ne uspava.
+#
+# Za trajno shranjevanje preklopi na plačljiv načrt in odkomentiraj disk:
+#   plan: starter
+#   envVars: - key: CKVIZ_DATA_DIR
+#              value: /var/data
+#   disk:
+#     name: ckviz-data
+#     mountPath: /var/data
+#     sizeGB: 1
 services:
   - type: web
     name: ckviz
     runtime: node
-    plan: starter
+    plan: free
     region: frankfurt
     buildCommand: npm ci
     startCommand: node server.js
@@ -19,13 +29,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: CKVIZ_DATA_DIR
-        value: /var/data
+      # Brez trajnega diska - vmesnik naj to pove in ponudi izvoz.
+      - key: CKVIZ_EPHEMERAL
+        value: "1"
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: HOST_PASSWORD
         sync: false
-    disk:
-      name: ckviz-data
-      mountPath: /var/data
-      sizeGB: 1

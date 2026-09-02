@@ -104,17 +104,25 @@ Strežnik sam ugotovi svoj javni naslov iz zahteve, tako da QR koda kaže pravo 
 
 ### Render (najlažje)
 
-1. Potisni repozitorij na GitHub.
-2. Na [render.com](https://render.com): **New → Blueprint** → izberi ta repozitorij.
-   `render.yaml` je že pripravljen.
-3. Vpiši `ANTHROPIC_API_KEY` in `HOST_PASSWORD`, ko ju Render vpraša.
-4. Velik zaslon je nato na `https://tvoje-ime.onrender.com/host.html`.
+`render.yaml` je pripravljen za **brezplačni načrt**.
 
-Trajni disk (`disk:` v `render.yaml`) zahteva plačljiv načrt. Na brezplačnem načrtu
-iz datoteke odstrani razdelka `disk` in `CKVIZ_DATA_DIR` - vse deluje, le shranjeni
-kvizi se izgubijo ob ponovnem zagonu, zato jih varuj z *Izvozi*. Brezplačni načrt
-strežnik tudi uspava po ~15 minutah neaktivnosti, zato velik zaslon odpri nekaj
-minut prej, da se zbudi.
+1. Na [render.com](https://render.com): **New → Blueprint** → izberi ta repozitorij.
+2. Render prebere `render.yaml` in vpraša za `ANTHROPIC_API_KEY` in `HOST_PASSWORD`.
+3. Velik zaslon je nato na `https://<ime>.onrender.com/host.html`.
+
+Kaj pomeni brezplačni načrt v praksi:
+
+- **Ni trajnega diska.** Shranjeni kvizi in zgodovina se ohranijo, dokler strežnik
+  teče, ob ponovnem zagonu pa izginejo. Zato je nastavljen `CKVIZ_EPHEMERAL=1`,
+  da vmesnik to jasno pove - kvize, ki jih želiš obdržati, shrani z *Izvozi*.
+- **Uspavanje po ~15 minutah brez prometa.** Vsak odprt zavihek pošlje ping vsakih
+  20 sekund, zato med igro ne uspava, tudi če pol ure nihče ne pritisne ničesar.
+  Uspava le, če velik zaslon zapreš. Prvo prebujanje traja ~1 minuto, zato
+  velik zaslon odpri nekaj minut pred začetkom.
+
+Za trajno shranjevanje preklopi na plačljiv načrt (`plan: starter`) in odkomentiraj
+razdelka `disk` in `CKVIZ_DATA_DIR` v `render.yaml` - navodila so v komentarju
+datoteke.
 
 ### Fly.io (s pravim trajnim diskom)
 
@@ -203,6 +211,7 @@ render.yaml, fly.toml  pripravljeni načrti za postavitev
 | `HOST_PASSWORD` | - | geslo za velik zaslon; **nastavi ga na spletu** |
 | `CKVIZ_DATA_DIR` | `./data` | mapa za kvize, zgodovino in žive sobe |
 | `PUBLIC_URL` | samodejno | javni naslov za QR kodo, če ga strežnik ne zazna pravilno |
+| `CKVIZ_EPHEMERAL` | - | `1`, kadar strežnik nima trajnega diska - vmesnik na to opozori |
 | `PORT` | `3000` | vrata strežnika |
 | `CKVIZ_MODEL` | `claude-opus-5` | model za pisanje vprašanj |
 | `CKVIZ_FALLBACK_MODEL` | `claude-opus-4-8` | rezervni model ob zavrnitvi |

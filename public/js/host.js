@@ -51,7 +51,12 @@ const wire = new Wire({
       return toast(msg.message, 'err');
     }
     if (msg.t === 'library') {
-      library = { packs: msg.packs || [], games: msg.games || [], saving: Boolean(msg.saving) };
+      library = {
+        packs: msg.packs || [],
+        games: msg.games || [],
+        saving: Boolean(msg.saving),
+        ephemeral: Boolean(msg.ephemeral),
+      };
       return render();
     }
     if (msg.t === 'toast') return toast(msg.message, msg.kind === 'ok' ? 'ok' : 'warn');
@@ -330,7 +335,11 @@ function viewLibrary() {
     !library.saving
       ? h('p', { class: 'small', style: 'margin-top:12px; color:var(--amber)' },
           'Ta strežnik nima trajnega diska - kvizi se ne shranjujejo. Uporabi Izvozi/Uvozi.')
-      : null,
+      : library.ephemeral
+        ? h('p', { class: 'small', style: 'margin-top:12px; color:var(--amber)' },
+            'Ta strežnik nima trajnega diska: shranjeno se ohrani, dokler teče, ob ponovnem zagonu pa se izgubi. '
+            + 'Kvize, ki jih želiš obdržati, si shrani z Izvozi.')
+        : null,
     h('div', { class: 'qlist', style: 'margin-top:12px' },
       library.packs.length
         ? library.packs.map((p) => h('div', { class: 'qrow' },

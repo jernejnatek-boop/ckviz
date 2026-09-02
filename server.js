@@ -19,6 +19,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
 const HOST_PASSWORD = process.env.HOST_PASSWORD || '';
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
+// Strežnik brez trajnega diska (npr. brezplačni načrt): shranjevanje deluje,
+// a se ob ponovnem zagonu izgubi. Vmesnik naj to jasno pove.
+const EPHEMERAL = process.env.CKVIZ_EPHEMERAL === '1';
 
 const storage = await new Storage().init();
 const store = new RoomStore(storage);
@@ -67,6 +70,7 @@ app.get('/api/info', (req, res) => {
     avatars: AVATARS,
     needsPassword: Boolean(HOST_PASSWORD),
     saving: storage.enabled,
+    ephemeral: EPHEMERAL,
     origin: publicOrigin(req),
   });
 });
@@ -153,7 +157,13 @@ wss.on('connection', (ws, req) => {
 });
 
 function sendLibrary(ws) {
-  send(ws, { t: 'library', packs: storage.listPacks(), games: storage.listGames(), saving: storage.enabled });
+  send(ws, {
+    t: 'library',
+    packs: storage.listPacks(),
+    games: storage.listGames(),
+    saving: storage.enabled,
+    ephemeral: EPHEMERAL,
+  });
 }
 
 async function handle(ws, msg) {
@@ -451,6 +461,6 @@ server.listen(PORT, () => {
   console.log(`  Velik zaslon (PC): ${PUBLIC_URL || `http://localhost:${PORT}`}/host.html`);
   console.log(`  Telefoni:          ${PUBLIC_URL || (lan ? `http://${lan}:${PORT}` : `http://localhost:${PORT}`)}`);
   console.log(`  Claude API:        ${aiAvailable() ? 'na voljo ✅' : 'ni ključa - vgrajena vprašanja ⚠️'}`);
-  console.log(`  Shranjevanje:      ${storage.enabled ? storage.dir : 'izklopljeno ⚠️'}`);
+  console.log(`  Shranjevanje:      ${storage.enabled ? `${storage.dir}${EPHEMERAL ? ' (ni trajno ⚠️)' : ''}` : 'izklopljeno ⚠️'}`);
   console.log(`  Geslo voditelja:   ${HOST_PASSWORD ? 'nastavljeno 🔒' : 'ni nastavljeno - kdorkoli lahko odpre velik zaslon ⚠️'}\n`);
 });
