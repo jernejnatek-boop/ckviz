@@ -280,9 +280,14 @@ async function handle(ws, msg) {
       return room.changed();
     }
 
+    case 'host:weight': {
+      const room = hostRoom();
+      return room.setWeight(msg.id, msg.weight);
+    }
+
     case 'host:removeQuestion': {
       const room = hostRoom();
-      const rest = room.questions.filter((q) => q.id !== msg.id).map(({ id, index, hot, ...r }) => r);
+      const rest = room.questions.filter((q) => q.id !== msg.id).map(({ id, index, ...r }) => r);
       return room.setQuestions(rest);
     }
 

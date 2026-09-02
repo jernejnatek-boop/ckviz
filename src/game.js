@@ -60,10 +60,17 @@ export const POINTS = {
   knowHit: 150,          // pravilno ugibanje v "Ali me poznaš?"
   speedMax: 50,          // maksimalen bonus za hitrost
   soloBoost: 1.4,        // igralec brez para dobi pribitek na znanje
-  hotMultiplier: 2,      // vroči krog
+  hotMultiplier: 2,      // privzet množitelj vročega kroga
 };
 
 export const CONFIDENCE_LEVELS = [1, 2, 3];
+export const WEIGHT_LEVELS = [1, 2, 3];
+
+/** Množitelj vprašanja, omejen na dovoljene vrednosti. */
+export function questionWeight(question) {
+  const w = Math.round(Number(question?.weight) || 1);
+  return WEIGHT_LEVELS.includes(w) ? w : 1;
+}
 
 export const DEFAULT_SETTINGS = {
   timeLimit: 30,
@@ -170,9 +177,11 @@ export function scoreSubmission({ question, submission, partnerSubmission, hasPa
     }
   }
 
-  if (question.hot && total > 0) {
-    const extra = total * (POINTS.hotMultiplier - 1);
-    lines.push({ key: 'hot', label: 'Vroči krog 🔥', value: extra });
+  // Množitelj vprašanja - privzeto 1, voditelj ga lahko nastavi za vsako vprašanje.
+  const weight = questionWeight(question);
+  if (weight > 1 && total > 0) {
+    const extra = total * (weight - 1);
+    lines.push({ key: 'weight', label: `Vredno x${weight} 🔥`, value: extra });
     total += extra;
   }
 

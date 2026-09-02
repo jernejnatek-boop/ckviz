@@ -1,7 +1,7 @@
 // Stanje sobe in potek igre. Vse je v pomnilniku - do 10 igralcev na sobo.
 
 import { randomUUID } from 'node:crypto';
-import { MODES, DEFAULT_SETTINGS, MAX_PLAYERS, scoreSubmission, isCorrect, sameAnswer } from './game.js';
+import { MODES, DEFAULT_SETTINGS, MAX_PLAYERS, WEIGHT_LEVELS, POINTS, scoreSubmission, isCorrect, sameAnswer, questionWeight } from './game.js';
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // brez I, O, 0, 1
 const REVEAL_DELAY_MS = 1200;
@@ -209,12 +209,30 @@ export class Room {
 
   setQuestions(list) {
     const total = list.length;
-    this.questions = list.map((q, i) => ({
-      ...q,
-      id: `q${i}`,
-      index: i,
-      hot: this.settings.hotRound && total >= 5 && i >= total - Math.max(1, Math.round(total * 0.2)),
-    }));
+    const hotFrom = total - Math.max(1, Math.round(total * 0.2));
+    this.questions = list.map((q, i) => {
+      // Množitelj, ki ga je voditelj nastavil ročno, ostane; sicer velja
+      // samodejni vroči krog na koncu.
+      const auto = this.settings.hotRound && total >= 5 && i >= hotFrom ? POINTS.hotMultiplier : 1;
+      return {
+        ...q,
+        id: `q${i}`,
+        index: i,
+        weight: q.weightSet ? questionWeight(q) : auto,
+        weightSet: Boolean(q.weightSet),
+      };
+    });
+    this.changed();
+  }
+
+  /** Voditelj nastavi, koliko je vprašanje vredno (x1, x2 ali x3). */
+  setWeight(id, weight) {
+    const q = this.questions.find((x) => x.id === id);
+    if (!q) throw new Error('Tega vprašanja ni.');
+    const w = Math.round(Number(weight) || 1);
+    if (!WEIGHT_LEVELS.includes(w)) throw new Error('Množitelj je lahko x1, x2 ali x3.');
+    q.weight = w;
+    q.weightSet = true;
     this.changed();
   }
 
@@ -528,7 +546,7 @@ export class Room {
         text: h.question.text,
         options: h.question.options,
         correct: h.question.correct,
-        hot: Boolean(h.question.hot),
+        weight: h.question.weight || 1,
         distribution: h.distribution,
         matches: h.pairs.filter((p) => p.match).length,
         hits: h.perPlayer.filter((p) => p.correct === true).length,
@@ -559,7 +577,7 @@ export class Room {
       expected: [...this.players.values()].filter((p) => p.connected).length,
       question: q && this.phase !== 'lobby' ? {
         id: q.id, index: q.index, mode: q.mode, category: q.category, text: q.text,
-        options: q.options, hot: q.hot,
+        options: q.options, weight: q.weight, weightSet: q.weightSet,
         correct: this.phase === 'reveal' ? q.correct : undefined,
         explanation: this.phase === 'reveal' ? q.explanation : undefined,
       } : null,
@@ -570,7 +588,7 @@ export class Room {
       history: this.phase === 'ended' ? this.history : null,
       preview: this.phase === 'lobby' ? this.questions.map((x) => ({
         id: x.id, mode: x.mode, category: x.category, text: x.text, options: x.options,
-        correct: x.correct, explanation: x.explanation, hot: x.hot,
+        correct: x.correct, explanation: x.explanation, weight: x.weight, weightSet: x.weightSet,
       })) : null,
     };
   }
@@ -605,7 +623,7 @@ export class Room {
       base.question = {
         id: q.id, index: q.index, mode: q.mode, modeLabel: def.label, modeEmoji: def.emoji,
         tagline: def.tagline, category: q.category, text: q.text, options: q.options,
-        multi: def.multi, hot: q.hot,
+        multi: def.multi, weight: q.weight,
         asksPredict: Boolean(def.predicts && partner),
         asksConfidence: Boolean(def.confidence),
         partnerName: partner?.name || null,
@@ -640,6 +658,7 @@ export class Room {
 
 function stripMeta(q) {
   const { id, index, hot, ...rest } = q;
+  if (!rest.weightSet) delete rest.weight;
   return rest;
 }
 

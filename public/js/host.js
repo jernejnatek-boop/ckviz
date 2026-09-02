@@ -239,15 +239,14 @@ function viewLobby() {
   const preview = h('div', { class: 'card' },
     h('div', { class: 'row spread' },
       h('div', { class: 'tiny' }, `Vprašanja (${state.questionCount})`),
-      state.questionCount ? h('span', { class: 'muted small' }, 'zadnjih 20 % je vroči krog') : null),
+      state.questionCount ? h('span', { class: 'muted small' }, 'x1/x2/x3 = koliko je vredno posamezno vprašanje') : null),
     h('div', { class: 'qlist', style: 'margin-top:12px' },
       state.preview?.length
         ? state.preview.map((q, i) => h('div', { class: 'qrow' },
             h('span', { class: 'muted', style: 'min-width:22px' }, `${i + 1}.`),
-            h('div', {},
+            h('div', { class: 'grow' },
               h('div', { class: 'row', style: 'gap:6px; margin-bottom:4px; flex-wrap:wrap' },
                 h('span', { class: `chip mode-${q.mode}`, style: 'font-size:10px; padding:3px 8px' }, modeName(q.mode)),
-                q.hot ? h('span', { class: 'chip hot', style: 'font-size:10px; padding:3px 8px' }, '🔥') : null,
                 h('span', { class: 'muted', style: 'font-size:11px' }, q.category)),
               h('div', {}, q.text),
               h('div', { class: 'muted', style: 'font-size:12px; margin-top:4px' },
@@ -255,6 +254,7 @@ function viewLobby() {
                   const ok = q.correct == null ? false : Array.isArray(q.correct) ? q.correct.includes(oi) : q.correct === oi;
                   return `${ok ? '✔ ' : ''}${o}`;
                 }).join('  ·  '))),
+            weightPicker(q),
             h('span', { class: 'del', onclick: () => wire.send({ t: 'host:removeQuestion', id: q.id }) }, '✕')))
         : h('p', { class: 'muted' }, 'Še ni vprašanj. Vpiši tematiko in klikni "Ustvari vprašanja".')));
 
@@ -390,6 +390,18 @@ function joinHint() {
     'Telefoni morajo biti na istem WiFi kot ta računalnik.');
 }
 
+/** Koliko je vprašanje vredno - voditelj nastavi za vsako posebej. */
+function weightPicker(q) {
+  const current = q.weight || 1;
+  return h('div', {
+    class: 'wpick',
+    title: 'Koliko je vredno to vprašanje',
+  }, [1, 2, 3].map((w) => h('button', {
+    class: current === w ? 'on' : '',
+    onclick: () => wire.send({ t: 'host:weight', id: q.id, weight: w }),
+  }, `x${w}`)));
+}
+
 function genPayload() {
   return { theme: setup.theme, count: setup.count, difficulty: setup.difficulty, tone: setup.tone, modes: setup.modes };
 }
@@ -419,7 +431,7 @@ function viewQuestion() {
       h('div', { class: 'row', style: 'gap:10px' },
         h('span', { class: `chip mode-${q.mode}` }, modeName(q.mode)),
         h('span', { class: 'chip' }, q.category),
-        q.hot ? h('span', { class: 'chip hot' }, '🔥 dvojne točke') : null),
+        q.weight > 1 ? h('span', { class: 'chip hot' }, `🔥 x${q.weight} točke`) : null),
       h('span', { class: 'muted' }, `${q.index + 1} / ${state.questionCount}`)),
     h('h1', { class: 'qtext', style: 'margin-top:22px' }, q.text),
     h('div', { class: 'options', style: 'margin-top:28px' },
@@ -482,7 +494,7 @@ function viewReveal() {
   const left = h('div', { class: 'card' },
     h('div', { class: 'row', style: 'gap:10px' },
       h('span', { class: `chip mode-${q.mode}` }, modeName(q.mode)),
-      q.hot ? h('span', { class: 'chip hot' }, '🔥') : null,
+      q.weight > 1 ? h('span', { class: 'chip hot' }, `🔥 x${q.weight}`) : null,
       h('span', { class: 'muted' }, `${q.index + 1} / ${state.questionCount}`)),
     h('h1', { class: 'qtext', style: 'margin-top:18px; font-size:clamp(22px,2.6vw,40px)' }, q.text),
     h('div', { style: 'margin-top:22px' }, q.options.map((text, i) => {
@@ -604,7 +616,7 @@ function viewEnd() {
       return h('div', { class: 'recap-row' },
         h('div', { class: 'row', style: 'gap:6px; margin-bottom:6px; flex-wrap:wrap' },
           h('span', { class: `chip mode-${q.mode}`, style: 'font-size:10px; padding:3px 8px' }, modeName(q.mode)),
-          q.hot ? h('span', { class: 'chip hot', style: 'font-size:10px; padding:3px 8px' }, '🔥') : null),
+          q.weight > 1 ? h('span', { class: 'chip hot', style: 'font-size:10px; padding:3px 8px' }, `🔥 x${q.weight}`) : null),
         h('div', { style: 'font-weight:700' }, q.text),
         correctIdx.length
           ? h('div', { class: 'muted', style: 'margin-top:6px' }, `Pravilno: ${correctIdx.map((i) => q.options[i]).join(', ')} · ${hits}/${answeredN} zadetkov`)

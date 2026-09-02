@@ -28,7 +28,17 @@ se najbolje bere med vrsticami.
 | 🔗 **Sinhronizacija** | Ni pravilnega odgovora - par mora **brez pogovora izbrati isto**. | +150, če se ujameta |
 | 💘 **Ali me poznaš?** | Odgovoriš zase, partner ugiba, kaj si izbral. | +150 za vsako uganjeno |
 
-Zadnjih 20 % vprašanj je **vroči krog 🔥** - dvojne točke, tako da je do konca vse odprto.
+### Dve ravni stave
+
+- **Igralec** pri vsakem vprašanju posebej izbere svoj **vložek** x1, x2 ali x3
+  (pri načinih Znanje in Več pravilnih). Večji vložek pomnoži dobiček, ob zgrešitvi
+  pa odnese točke - zato je vsako vprašanje svoja mala odločitev.
+- **Voditelj** pri vsakem vprašanju posebej nastavi, **koliko je vredno**: x1, x2 ali x3.
+  Gumbi so ob vsakem vprašanju v seznamu med pripravo. Ta množitelj velja za vse
+  igralce in se pomnoži z igralčevim vložkom.
+
+Stikalo **Vroči krog 🔥** samo prednastavi x2 na zadnjih 20 % vprašanj, da je do konca
+vse odprto. Kar nastaviš ročno, ostane - tudi če vprašanja kasneje brišeš ali dodajaš.
 
 Na koncu velik zaslon pokaže stopničke, **Kemijomer**, pregled vprašanje za vprašanjem
 in nagrade večera: *Najboljši poznavalec*, *Hodeča enciklopedija*, *Najhitrejši prst*,

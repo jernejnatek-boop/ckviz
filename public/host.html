@@ -57,7 +57,13 @@
 
   .qlist { max-height: 340px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 6px; }
   .qrow { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.04); border: 1px solid var(--line); font-size: 14px; }
-  .qrow .del { margin-left: auto; cursor: pointer; opacity: .4; }
+  .qrow .del { cursor: pointer; opacity: .4; align-self: center; }
+  .wpick { display: flex; gap: 3px; align-self: center; flex: 0 0 auto; }
+  .wpick button {
+    padding: 4px 7px; font-size: 11px; font-weight: 800; cursor: pointer; color: var(--muted);
+    background: rgba(255,255,255,.05); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .wpick button.on { color: var(--amber); border-color: rgba(251,191,36,.6); background: rgba(251,191,36,.16); }
   .qrow .del:hover { opacity: 1; color: var(--red); }
 
   .podium { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: end; }

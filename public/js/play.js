@@ -162,7 +162,7 @@ function viewQuestion() {
     h('div', { class: 'row spread' },
       h('div', { class: 'row', style: 'gap:8px' },
         h('span', { class: `chip mode-${q.mode}` }, `${q.modeEmoji} ${q.modeLabel}`),
-        q.hot ? h('span', { class: 'chip hot' }, '🔥 dvojne točke') : null),
+        q.weight > 1 ? h('span', { class: 'chip hot' }, `🔥 x${q.weight} točke`) : null),
       timerNode()),
     h('h2', { style: 'font-size:21px; margin-top:14px; line-height:1.3' }, q.text),
     h('p', { class: 'muted small', style: 'margin-top:8px' }, q.tagline));
