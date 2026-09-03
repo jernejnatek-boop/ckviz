@@ -14,6 +14,7 @@ let password = store('ckviz:pw') || '';
 let authNeeded = false;
 let infoLoaded = false;
 let socketReady = false;
+let pairPick = null;   // prvi izbrani igralec pri sestavljanju para na zaslonu
 
 const setup = store('ckviz:setup') || {
   theme: 'Splošna razgledanost',
@@ -163,19 +164,57 @@ function viewLobby() {
           'Skeniraj QR ali odpri ', h('b', { style: 'color:var(--txt)' }, joinUrl.replace(/^https?:\/\//, ''))),
         joinHint())));
 
+  // Če izbrani igralec medtem izgine ali se spari, izbiro pozabimo.
+  const picked = state.players.find((x) => x.id === pairPick && !x.partnerId);
+  if (pairPick && !picked) pairPick = null;
+
+  const unpaired = state.players.filter((p) => !p.partnerId).length;
+
   const players = h('div', { class: 'card' },
-    h('div', { class: 'row spread' },
+    h('div', { class: 'row spread wrap-row' },
       h('div', { class: 'tiny' }, `Igralci (${state.players.length} / ${info.maxPlayers || 10})`),
-      h('button', { class: 'btn sm', onclick: () => wire.send({ t: 'host:autopair' }) }, 'Samodejno sestavi pare')),
-    h('div', { class: 'player-grid', style: 'margin-top:14px' },
+      h('div', { class: 'row', style: 'gap:8px' },
+        h('button', {
+          class: 'btn sm', disabled: unpaired < 2,
+          onclick: () => { pairPick = null; wire.send({ t: 'host:autopair' }); },
+        }, 'Samodejno sestavi pare'),
+        h('button', {
+          class: 'btn sm ghost', disabled: unpaired === state.players.length,
+          onclick: () => { pairPick = null; wire.send({ t: 'host:unpairAll' }); },
+        }, 'Razdruži vse'))),
+
+    h('p', { class: 'muted small', style: 'margin-top:10px' },
+      pairPick
+        ? `Izbran/a ${picked.emoji} ${picked.name} - klikni še njegov ali njen par.`
+        : 'Klikni dva igralca, da ju povežeš. 💔 razdruži par, ✕ odstrani igralca iz sobe.'),
+
+    h('div', { class: 'player-grid', style: 'margin-top:12px' },
       state.players.length
         ? state.players.map((p) => {
             const partner = state.players.find((x) => x.id === p.partnerId);
-            return h('div', { class: `pchip ${p.partnerId ? 'paired' : ''} ${p.connected ? '' : 'off'}` },
+            const selectable = !p.partnerId;
+            return h('div', {
+              class: `pchip ${p.partnerId ? 'paired' : ''} ${p.connected ? '' : 'off'}`
+                + `${pairPick === p.id ? ' picked' : ''}${selectable ? ' selectable' : ''}`,
+              onclick: () => {
+                if (!selectable) return;
+                if (pairPick === p.id) pairPick = null;
+                else if (pairPick) { wire.send({ t: 'host:pair', aId: pairPick, bId: p.id }); pairPick = null; }
+                else pairPick = p.id;
+                render();
+              },
+            },
               h('span', { style: 'font-size:20px' }, p.emoji),
               h('span', {}, p.name),
               partner ? h('span', { class: 'muted small' }, `💘 ${partner.name}`) : h('span', { class: 'muted small' }, 'brez para'),
-              h('span', { class: 'x', title: 'Odstrani', onclick: () => wire.send({ t: 'host:kick', playerId: p.id }) }, '✕'));
+              partner ? h('span', {
+                class: 'x', title: `Razdruži ${p.name} in ${partner.name}`,
+                onclick: (e) => { e.stopPropagation(); wire.send({ t: 'host:unpair', playerId: p.id }); },
+              }, '💔') : null,
+              h('span', {
+                class: 'x', title: 'Odstrani iz sobe',
+                onclick: (e) => { e.stopPropagation(); wire.send({ t: 'host:kick', playerId: p.id }); },
+              }, '✕'));
           })
         : h('p', { class: 'muted pulse' }, 'Čakam, da se pridružijo igralci ...')));
 

@@ -164,6 +164,31 @@ export class Room {
     this.changed();
   }
 
+  /** Voditelj neposredno poveže dva igralca (brez vzajemne potrditve). */
+  pair(aId, bId) {
+    if (this.phase !== 'lobby') throw new Error('Pare lahko sestavite samo pred začetkom.');
+    const a = this.players.get(aId);
+    const b = this.players.get(bId);
+    if (!a || !b) throw new Error('Tega igralca ni.');
+    if (a.id === b.id) throw new Error('Igralec ne more biti sam svoj par.');
+    if (a.partnerId || b.partnerId) throw new Error('Eden od njiju je že v paru.');
+    a.partnerId = b.id;
+    b.partnerId = a.id;
+    a.pendingPartner = null;
+    b.pendingPartner = null;
+    this.changed();
+  }
+
+  /** Razdruži vse pare naenkrat - za hitro ponastavitev. */
+  unpairAll() {
+    if (this.phase !== 'lobby') throw new Error('Pare lahko sestavite samo pred začetkom.');
+    for (const p of this.players.values()) {
+      p.partnerId = null;
+      p.pendingPartner = null;
+    }
+    this.changed();
+  }
+
   autoPair() {
     if (this.phase !== 'lobby') throw new Error('Pare lahko sestavite samo pred začetkom.');
     const singles = [...this.players.values()].filter((p) => !p.partnerId).sort((x, y) => x.joinedAt - y.joinedAt);

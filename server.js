@@ -366,6 +366,12 @@ async function handle(ws, msg) {
     case 'host:autopair':
       return hostRoom().autoPair();
 
+    case 'host:pair':
+      return hostRoom().pair(msg.aId, msg.bId);
+
+    case 'host:unpairAll':
+      return hostRoom().unpairAll();
+
     case 'host:unpair':
       return hostRoom().unpair(msg.playerId);
 

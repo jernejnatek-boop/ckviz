@@ -205,8 +205,15 @@ in mu podaj `PUBLIC_URL=https://tvoja-domena`.
    pregledaš in katerokoli pobrišeš, z *Dodaj še* pa krog razširiš. Dober krog
    shrani z *Shrani ta kviz* in ga naslednjič naložiš v sekundi.
 2. **Čakalnica**: igralci vstopijo, izberejo ime in znak, nato **na telefonu izbere
-   vsak svoj par**. Ko se izbereta oba, sta v paru. Lahko tudi klikneš
-   *Samodejno sestavi pare*.
+   vsak svoj par** - izbira je vzajemna, potrditi morata oba.
+
+   Pare lahko urejaš tudi z velikega zaslona: **klikni dva igralca in ju povežeš**,
+   **💔** razdruži par, **✕** odstrani igralca iz sobe, gumba *Samodejno sestavi pare*
+   in *Razdruži vse* pa poskrbita za hitro ponastavitev. Pare je mogoče spreminjati
+   samo pred začetkom igre.
+
+   Kdor ostane brez para, vseeno igra: pri Znanju in Več pravilnih dobi 1,4-kratni
+   pribitek, ne more pa napovedovati partnerja ali loviti ujemanja.
 3. **Igra**: vprašanje se pokaže na velikem zaslonu, telefoni odgovarjajo.
    Ko vsi zaklenejo, se odgovori razkrijejo sami.
 4. **Razkritje**: razporeditev odgovorov, *Zrcalo parov*, pridobljene točke in

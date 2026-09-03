@@ -33,6 +33,12 @@
   .pchip.off { opacity: .4; }
   .pchip .x { cursor: pointer; opacity: .45; font-size: 13px; }
   .pchip .x:hover { opacity: 1; color: var(--red); }
+  .pchip.selectable { cursor: pointer; }
+  .pchip.selectable:hover { border-color: var(--line-strong); background: rgba(255,255,255,.10); }
+  .pchip.picked {
+    border-color: var(--violet); background: rgba(139,92,246,.22);
+    box-shadow: 0 0 0 2px rgba(139,92,246,.35);
+  }
 
   .qtext { font-size: clamp(26px, 3.4vw, 52px); font-weight: 900; line-height: 1.15; letter-spacing: -.025em; }
   .opt-big { font-size: clamp(17px, 1.5vw, 24px); padding: 20px 22px; }
