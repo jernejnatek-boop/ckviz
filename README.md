@@ -225,12 +225,13 @@ in mu podaj `PUBLIC_URL=https://tvoja-domena`.
    velik zaslon.
 
    Ko so odgovori razkriti, teče **odštevanje do naslednjega vprašanja**
-   (privzeto 15 s, nastavljivo 0-120). Nikomur ni treba paziti na tipkovnico -
+   (polje **Naprej čez (s)** v pripravi, privzeto 15 s, nastavljivo 0-120). Nikomur ni treba paziti na tipkovnico -
    igra teče sama. Odštevanje vidijo tudi igralci na telefonu (*"naprej čez 8 s"*).
    Nastavitev **0 pomeni ročno**: rezultati stojijo, dokler ne pritisneš naprej.
 
    Ker se ne igra vedno na hitro, je tu **pavza**: s **preslednico** ali gumbom
-   *⏸ Pavza* odštevanje zamrzne, dokler ga ne odtaješ. Pavza je mogoča samo na
+   *⏸ Pavza* odštevanje zamrzne. Pavza nima svojega časa - traja, dokler znova
+   ne pritisneš. Pavza je mogoča samo na
    rezultatih - sredi vprašanja ne, da nihče ne pridobi časa za razmislek - in jo
    lahko v pripravi tudi prepoveš. Med pavzo to piše na velikem zaslonu in na
    vseh telefonih.

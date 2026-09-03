@@ -266,7 +266,7 @@ function viewLobby() {
           wire.send({ t: 'host:settings', settings: { openTimeLimit: setup.openTimeLimit } });
         },
       })),
-      field('Rezultati (s)', h('div', {},
+      field('Naprej čez (s)', h('div', {},
         h('input', {
           type: 'number', min: '0', max: '120', value: setup.revealSeconds,
           onchange: (e) => {
@@ -278,8 +278,10 @@ function viewLobby() {
           oninput: (e) => { setup.revealSeconds = Number(e.target.value); },
         }),
         h('div', { class: 'muted', style: 'font-size:11px; margin-top:5px' },
-          setup.revealSeconds ? 'nato samodejno naprej' : '0 = naprej ročno'))),
-      field('Pavza na rezultatih', h('button', {
+          setup.revealSeconds
+            ? `rezultati stojijo ${setup.revealSeconds} s`
+            : '0 = rezultati stojijo, dokler ne pritisneš'))),
+      field('Pavza (preslednica)', h('button', {
         class: `btn ${setup.allowPause ? 'primary' : ''}`, style: 'width:100%',
         disabled: !setup.revealSeconds,
         onclick: () => {
@@ -287,7 +289,7 @@ function viewLobby() {
           wire.send({ t: 'host:settings', settings: { allowPause: setup.allowPause } });
           render();
         },
-      }, setup.revealSeconds ? (setup.allowPause ? '⏸ dovoljena' : 'ni dovoljena') : '—')),
+      }, setup.revealSeconds ? (setup.allowPause ? '⏸ dovoljena' : 'ni dovoljena') : 'ni potrebna')),
       field('Vroči krog na koncu', h('button', {
         class: `btn ${setup.hotRound ? 'primary' : ''}`, style: 'width:100%',
         onclick: () => {
