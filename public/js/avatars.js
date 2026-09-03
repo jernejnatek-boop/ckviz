@@ -49,6 +49,27 @@ const FACES = {
     <circle cx="35" cy="55" r="6.5"/><circle cx="65" cy="49" r="6.5"/>
     <path d="M25 42q9 -6 18 -2" fill="none" stroke="${INK}" stroke-width="5" stroke-linecap="round"/>
     <circle cx="50" cy="72" r="6"/>`,
+  zaljubljen: `
+    <path d="M35 47c-4-5-11-3-11 3 0 5 7 9 11 12 4-3 11-7 11-12 0-6-7-8-11-3z"/>
+    <path d="M65 47c-4-5-11-3-11 3 0 5 7 9 11 12 4-3 11-7 11-12 0-6-7-8-11-3z"/>
+    <path d="M40 74q10 7 20 0" fill="none" stroke="${INK}" stroke-width="5.5" stroke-linecap="round"/>`,
+  jezen: `
+    <path d="M25 42l18 6" fill="none" stroke="${INK}" stroke-width="5.5" stroke-linecap="round"/>
+    <path d="M75 42l-18 6" fill="none" stroke="${INK}" stroke-width="5.5" stroke-linecap="round"/>
+    <circle cx="35" cy="56" r="6"/><circle cx="65" cy="56" r="6"/>
+    <path d="M38 76q12 -9 24 0" fill="none" stroke="${INK}" stroke-width="5.5" stroke-linecap="round"/>`,
+  jezik: `
+    <circle cx="35" cy="52" r="6.5"/><circle cx="65" cy="52" r="6.5"/>
+    <path d="M34 68h32a16 16 0 0 1-32 0z"/>
+    <path d="M50 76c6 0 9 4 9 8s-3 6-6 5-3-4-3-7z"/>`,
+  robot: `
+    <rect x="26" y="46" width="16" height="12" rx="3"/><rect x="58" y="46" width="16" height="12" rx="3"/>
+    <rect x="36" y="70" width="28" height="6" rx="3"/>`,
+  pirat: `
+    <path d="M22 44h26v6a13 13 0 0 1-26 0z"/>
+    <path d="M22 44L14 36" fill="none" stroke="${INK}" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="65" cy="53" r="6.5"/>
+    <path d="M37 72q13 9 25 -2" fill="none" stroke="${INK}" stroke-width="5.5" stroke-linecap="round"/>`,
 };
 
 // Dodatki živijo v zgornjem pasu (y 8-34).
@@ -63,6 +84,15 @@ const ACCENTS = {
   slusalke: `<path d="M22 30V26a28 28 0 0 1 56 0v4" fill="none" stroke="${INK}" stroke-width="6" stroke-linecap="round"/>`
     + `<rect x="13" y="26" width="15" height="20" rx="7"/><rect x="72" y="26" width="15" height="20" rx="7"/>`,
   antenna: `<path d="M50 32V17" stroke="${INK}" stroke-width="5" stroke-linecap="round"/><circle cx="50" cy="12" r="6.5"/>`,
+  cvet: `<circle cx="66" cy="18" r="8"/><circle cx="82" cy="18" r="8"/><circle cx="74" cy="8" r="8"/><circle cx="74" cy="28" r="8"/><circle cx="74" cy="18" r="5" fill="#fff"/>`,
+  kapa: `<path d="M20 32a30 30 0 0 1 60 0z"/><path d="M78 32h16a5 5 0 0 1 0 8H74z"/>`,
+  greben: `<path d="M50 2c7 7 11 15 11 24H39c0-9 4-17 11-24z"/>`
+    + `<path d="M33 12c5 5 7 10 7 16H26c0-6 3-11 7-16z"/>`
+    + `<path d="M67 12c5 5 7 10 7 16H60c0-6 3-11 7-16z"/>`,
+  snezinka: `<g stroke="${INK}" stroke-width="5" stroke-linecap="round" fill="none">`
+    + `<path d="M74 4v28M61 11l26 14M87 11L61 25"/></g>`,
+  uhani: `<circle cx="17" cy="62" r="7" fill="none" stroke="${INK}" stroke-width="4.5"/><circle cx="83" cy="62" r="7" fill="none" stroke="${INK}" stroke-width="4.5"/>`,
+  valovi: `<path d="M18 26q8 -10 16 0t16 0t16 0t16 0" fill="none" stroke="${INK}" stroke-width="5.5" stroke-linecap="round"/>`,
   iskrice: `<path d="M30 26l2.4 5 5 2.4-5 2.4L30 41l-2.4-5.2-5-2.4 5-2.4z"/>`
     + `<path d="M50 16l3 6.2 6.2 3-6.2 3L50 34.4l-3-6.2-6.2-3 6.2-3z"/>`
     + `<path d="M70 26l2.4 5 5 2.4-5 2.4L70 41l-2.4-5.2-5-2.4 5-2.4z"/>`,
