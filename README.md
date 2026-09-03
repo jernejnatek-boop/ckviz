@@ -223,11 +223,28 @@ in mu podaj `PUBLIC_URL=https://tvoja-domena`.
 4. **Razkritje**: razporeditev odgovorov, *Zrcalo parov*, pridobljene točke in
    lestvica. Igralci lahko s telefona pošljejo emoji reakcijo, ki zaplava čez
    velik zaslon.
+
+   Ko so odgovori razkriti, teče **odštevanje do naslednjega vprašanja**
+   (privzeto 15 s, nastavljivo 0-120). Nikomur ni treba paziti na tipkovnico -
+   igra teče sama. Odštevanje vidijo tudi igralci na telefonu (*"naprej čez 8 s"*).
+   Nastavitev **0 pomeni ročno**: rezultati stojijo, dokler ne pritisneš naprej.
+
+   Ker se ne igra vedno na hitro, je tu **pavza**: s **preslednico** ali gumbom
+   *⏸ Pavza* odštevanje zamrzne, dokler ga ne odtaješ. Pavza je mogoča samo na
+   rezultatih - sredi vprašanja ne, da nihče ne pridobi časa za razmislek - in jo
+   lahko v pripravi tudi prepoveš. Med pavzo to piše na velikem zaslonu in na
+   vseh telefonih.
 5. **Konec**: stopničke, nagrade, Kemijomer, celoten pregled kroga - in zapis
    v *Odigrane igre*. *Nov krog (iste ekipe)* obdrži pare in ponastavi točke.
 
-**Bližnjice na velikem zaslonu:** `preslednica` ali `→` - začni igro / razkrij
-odgovore / naslednje vprašanje.
+**Bližnjice na velikem zaslonu:**
+
+| | |
+|---|---|
+| `preslednica` | v čakalnici začne igro, med vprašanjem razkrije odgovore, **na rezultatih zaustavi ali nadaljuje odštevanje** |
+| `→` | isto, le da na rezultatih vedno pelje na naslednje vprašanje |
+
+Kadar pavza ni dovoljena, preslednica na rezultatih pelje naprej, tako kot prej.
 
 ---
 

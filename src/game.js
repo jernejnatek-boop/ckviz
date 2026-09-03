@@ -88,6 +88,8 @@ export function questionWeight(question) {
 export const DEFAULT_SETTINGS = {
   timeLimit: 30,       // vprašanja z izbiro
   openTimeLimit: 75,   // opisna vprašanja - pisanje traja dlje
+  revealSeconds: 15,   // koliko časa stojijo rezultati, preden gre naprej (0 = ročno)
+  allowPause: true,    // ali sme voditelj zaustaviti odštevanje na rezultatih
   theme: 'Splošna razgledanost',
   hotRound: true,
 };

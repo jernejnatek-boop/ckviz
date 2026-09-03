@@ -392,6 +392,9 @@ async function handle(ws, msg) {
     case 'host:reveal':
       return hostRoom().reveal();
 
+    case 'host:pause':
+      return hostRoom().togglePause();
+
     case 'host:end': {
       const room = hostRoom();
       const hadGame = room.history.length > 0;
@@ -476,6 +479,8 @@ function sanitizeSettings(s = {}) {
   const out = {};
   if (s.timeLimit != null) out.timeLimit = Math.min(120, Math.max(10, Number(s.timeLimit) || 30));
   if (s.openTimeLimit != null) out.openTimeLimit = Math.min(300, Math.max(20, Number(s.openTimeLimit) || 75));
+  if (s.revealSeconds != null) out.revealSeconds = Math.min(120, Math.max(0, Math.round(Number(s.revealSeconds) || 0)));
+  if (s.allowPause != null) out.allowPause = Boolean(s.allowPause);
   if (s.theme != null) out.theme = String(s.theme).slice(0, 200);
   if (s.hotRound != null) out.hotRound = Boolean(s.hotRound);
   return out;

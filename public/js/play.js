@@ -79,10 +79,12 @@ function render() {
     ? (state.phase === 'lobby' ? `soba ${state.code} · čakalnica`
       : state.phase === 'ended' ? 'konec igre'
       : state.phase === 'judging' ? 'presojam odgovora ...'
+      : state.phase === 'reveal' ? revealSub()
       : `vprašanje ${state.index + 1}/${state.questionCount}`)
     : `soba ${CODE || '—'}`;
   el('#tbScore').textContent = state?.me?.score ?? 0;
 
+  startRevealTicker();
   clear(app);
   if (!joined || !state) return app.append(viewJoin());
   if (state.phase === 'lobby') return app.append(viewLobby());
@@ -307,6 +309,7 @@ function viewReveal() {
   const gain = me?.gain || 0;
 
   const head = h('div', { class: 'card center' },
+    state.auto?.paused ? h('div', { class: 'chip hot', style: 'margin-bottom:12px' }, '⏸ pavza') : null,
     h('div', { class: `gain ${gain > 0 ? 'plus' : 'zero'}` }, gain > 0 ? `+${gain}` : '0'),
     h('div', { class: 'tiny', style: 'margin-top:4px' }, 'točk pri tem vprašanju'),
     me?.lines?.length
@@ -388,6 +391,16 @@ function viewReveal() {
   return h('div', {}, head, answerCard, mirror, reactions, standingsCard());
 }
 
+/** Med rezultati pove, kdaj gre naprej oziroma da je igra na pavzi. */
+function revealSub() {
+  const a = state.auto;
+  const base = `vprašanje ${state.index + 1}/${state.questionCount}`;
+  if (!a?.enabled) return base;
+  if (a.paused) return '⏸ pavza';
+  const left = Math.max(0, Math.ceil(((a.endsAt || 0) - Date.now()) / 1000));
+  return `${base} · naprej čez ${left} s`;
+}
+
 function standingsCard() {
   return h('div', { class: 'card', style: 'margin-top:14px' },
     h('div', { class: 'tiny', style: 'margin-bottom:10px' }, 'Vrstni red'),
@@ -459,6 +472,16 @@ function pushDraft(locked) {
   // med tipkanjem povozilo pravkar oddani odgovor.
   if (draft.locked && !locked) return;
   wire.send({ t: 'answer', qid: draft.qid, choice: draft.choice, text: draft.text, predict: draft.predict, confidence: draft.confidence, locked });
+}
+
+let revealTicker = null;
+function startRevealTicker() {
+  clearInterval(revealTicker);
+  if (state?.phase !== 'reveal' || !state.auto?.enabled || state.auto.paused) return;
+  revealTicker = setInterval(() => {
+    if (state?.phase !== 'reveal') return clearInterval(revealTicker);
+    el('#tbSub').textContent = revealSub();
+  }, 500);
 }
 
 function timerNode() {

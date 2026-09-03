@@ -10,6 +10,7 @@ let info = { ai: false, needsPassword: false, saving: false };
 let state = null;
 let joinUrl = '';
 let ticker = null;
+let autoTicker = null;
 let library = { packs: [], games: [], saving: false };
 let password = store('ckviz:pw') || '';
 let authNeeded = false;
@@ -24,6 +25,8 @@ const setup = store('ckviz:setup') || {
   tone: 'sproščen in duhovit',
   timeLimit: 30,
   openTimeLimit: 75,
+  revealSeconds: 15,
+  allowPause: true,
   hotRound: true,
   modes: ['trivia', 'multi', 'sync', 'know', 'open'],
 };
@@ -48,7 +51,11 @@ const wire = new Wire({
       }
       if (/seje ni več/i.test(msg.message)) {
         store('ckviz:host', null);
-        wire.send({ t: 'host:create', password, settings: { timeLimit: setup.timeLimit, openTimeLimit: setup.openTimeLimit, theme: setup.theme, hotRound: setup.hotRound } });
+        wire.send({ t: 'host:create', password, settings: {
+    timeLimit: setup.timeLimit, openTimeLimit: setup.openTimeLimit,
+    revealSeconds: setup.revealSeconds, allowPause: setup.allowPause,
+    theme: setup.theme, hotRound: setup.hotRound,
+  } });
         return;
       }
       return toast(msg.message, 'err');
@@ -94,7 +101,11 @@ function maybeOpen() {
 function openSession() {
   const saved = store('ckviz:host');
   if (saved?.code) wire.send({ t: 'host:resume', code: saved.code, hostToken: saved.hostToken, password });
-  else wire.send({ t: 'host:create', password, settings: { timeLimit: setup.timeLimit, openTimeLimit: setup.openTimeLimit, theme: setup.theme, hotRound: setup.hotRound } });
+  else wire.send({ t: 'host:create', password, settings: {
+    timeLimit: setup.timeLimit, openTimeLimit: setup.openTimeLimit,
+    revealSeconds: setup.revealSeconds, allowPause: setup.allowPause,
+    theme: setup.theme, hotRound: setup.hotRound,
+  } });
 }
 
 function celebrate(s) {
@@ -255,6 +266,28 @@ function viewLobby() {
           wire.send({ t: 'host:settings', settings: { openTimeLimit: setup.openTimeLimit } });
         },
       })),
+      field('Rezultati (s)', h('div', {},
+        h('input', {
+          type: 'number', min: '0', max: '120', value: setup.revealSeconds,
+          onchange: (e) => {
+            const v = Math.min(120, Math.max(0, Math.round(Number(e.target.value) || 0)));
+            setup.revealSeconds = v; e.target.value = String(v); store('ckviz:setup', setup);
+            wire.send({ t: 'host:settings', settings: { revealSeconds: v } });
+            render();
+          },
+          oninput: (e) => { setup.revealSeconds = Number(e.target.value); },
+        }),
+        h('div', { class: 'muted', style: 'font-size:11px; margin-top:5px' },
+          setup.revealSeconds ? 'nato samodejno naprej' : '0 = naprej ročno'))),
+      field('Pavza na rezultatih', h('button', {
+        class: `btn ${setup.allowPause ? 'primary' : ''}`, style: 'width:100%',
+        disabled: !setup.revealSeconds,
+        onclick: () => {
+          setup.allowPause = !setup.allowPause; store('ckviz:setup', setup);
+          wire.send({ t: 'host:settings', settings: { allowPause: setup.allowPause } });
+          render();
+        },
+      }, setup.revealSeconds ? (setup.allowPause ? '⏸ dovoljena' : 'ni dovoljena') : '—')),
       field('Vroči krog na koncu', h('button', {
         class: `btn ${setup.hotRound ? 'primary' : ''}`, style: 'width:100%',
         onclick: () => {
@@ -314,7 +347,10 @@ function viewLobby() {
   return h('div', {},
     header(h('div', { class: 'row', style: 'gap:8px' },
       h('span', { class: 'chip' }, `🕒 ${state.settings.timeLimit} s`),
-      h('span', { class: 'chip' }, `✍️ ${state.settings.openTimeLimit} s`))),
+      h('span', { class: 'chip' }, `✍️ ${state.settings.openTimeLimit} s`),
+      h('span', { class: 'chip' }, state.settings.revealSeconds
+        ? `⏭ ${state.settings.revealSeconds} s${state.settings.allowPause ? ' · pavza ⏸' : ''}`
+        : '⏭ ročno'))),
     h('div', { class: 'grid cols-2' }, joinCard, players),
     h('div', { class: 'grid cols-2', style: 'margin-top:18px' }, gen, preview),
     h('div', { class: 'grid cols-2', style: 'margin-top:18px' }, viewLibrary(), viewHistory()));
@@ -807,9 +843,37 @@ function controlsQuestion() {
 
 function controlsReveal() {
   const last = state.index + 1 >= state.questionCount;
+  const a = state.auto;
+
+  if (a?.enabled) ctrl.append(countdownChip(a));
+  if (a?.enabled && a.allowPause) {
+    ctrl.append(h('button', {
+      class: `btn ${a.paused ? 'primary' : ''}`,
+      onclick: () => wire.send({ t: 'host:pause' }),
+      title: 'preslednica',
+    }, a.paused ? '▶ Nadaljuj' : '⏸ Pavza'));
+  }
   ctrl.append(
-    h('button', { class: 'btn primary', onclick: () => wire.send({ t: 'host:next' }) },
+    h('button', { class: 'btn primary', onclick: () => wire.send({ t: 'host:next' }), title: '→' },
       last ? '🏁 Zaključi in pokaži statistiko' : 'Naslednje vprašanje ▶'));
+}
+
+/** Koliko sekund še stojijo rezultati - tiktaka tudi med pavzo (zamrznjeno). */
+function countdownChip(a) {
+  const chip = h('span', { class: `chip ${a.paused ? 'hot' : ''}`, style: 'font-variant-numeric:tabular-nums' });
+  const tick = () => {
+    if (!state?.auto?.enabled) return;
+    const left = state.auto.paused
+      ? (state.auto.leftMs || 0)
+      : Math.max(0, (state.auto.endsAt || 0) - Date.now());
+    chip.textContent = state.auto.paused
+      ? `⏸ pavza · ${Math.ceil(left / 1000)} s`
+      : `⏭ ${Math.ceil(left / 1000)} s`;
+  };
+  clearInterval(autoTicker);
+  tick();
+  autoTicker = setInterval(tick, 200);
+  return chip;
 }
 
 function controlsEnd() {
@@ -824,10 +888,15 @@ function controlsEnd() {
 document.addEventListener('keydown', (e) => {
   if (e.target.matches('input, select, textarea')) return;
   if (state?.phase === 'judging') return; // med presojo ni prehodov
-  if (e.key === ' ' || e.key === 'ArrowRight') {
-    e.preventDefault();
-    if (state?.phase === 'question') wire.send({ t: 'host:reveal' });
-    else if (state?.phase === 'reveal') wire.send({ t: 'host:next' });
-    else if (state?.phase === 'lobby') wire.send({ t: 'host:start' });
-  }
+  if (e.key !== ' ' && e.key !== 'ArrowRight') return;
+  e.preventDefault();
+
+  if (state?.phase === 'lobby') return wire.send({ t: 'host:start' });
+  if (state?.phase === 'question') return wire.send({ t: 'host:reveal' });
+  if (state?.phase !== 'reveal') return;
+
+  // Na rezultatih preslednica zaustavi odštevanje, puščica pa pelje naprej.
+  const canPause = state.auto?.enabled && state.auto.allowPause;
+  if (e.key === ' ' && canPause) return wire.send({ t: 'host:pause' });
+  wire.send({ t: 'host:next' });
 });

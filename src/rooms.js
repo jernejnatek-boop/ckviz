@@ -70,6 +70,10 @@ export class Room {
     this.questionStartedAt = null;
     this.timer = null;
     this.revealTimer = null;
+    this.autoTimer = null;      // prehod z rezultatov na naslednje vprašanje
+    this.autoEndsAt = null;     // kdaj bo prehod (za odštevanje na zaslonu)
+    this.autoLeftMs = null;     // koliko je ostalo, ko je bila pavza vklopljena
+    this.paused = false;
     this.generating = false;
     this.genError = null;
     this.genProgress = null;
@@ -324,8 +328,51 @@ export class Room {
   clearTimers() {
     if (this.timer) clearTimeout(this.timer);
     if (this.revealTimer) clearTimeout(this.revealTimer);
+    if (this.autoTimer) clearTimeout(this.autoTimer);
     this.timer = null;
     this.revealTimer = null;
+    this.autoTimer = null;
+    this.autoEndsAt = null;
+    this.autoLeftMs = null;
+    this.paused = false;
+  }
+
+  // ---------- samodejni prehod z rezultatov ----------
+
+  /** Po razkritju odšteva do naslednjega vprašanja; 0 sekund pomeni ročno. */
+  startAutoNext() {
+    const sec = Number(this.settings.revealSeconds) || 0;
+    if (sec > 0) this.armAutoNext(sec * 1000);
+  }
+
+  armAutoNext(ms) {
+    if (this.autoTimer) clearTimeout(this.autoTimer);
+    this.autoEndsAt = Date.now() + ms;
+    this.autoLeftMs = null;
+    this.paused = false;
+    this.autoTimer = setTimeout(() => {
+      this.autoTimer = null;
+      this.autoEndsAt = null;
+      if (this.phase === 'reveal') this.next();
+    }, ms);
+  }
+
+  /** Pavza in nadaljevanje - mogoča samo na zaslonu z rezultati. */
+  togglePause() {
+    if (this.phase !== 'reveal') throw new Error('Pavza je mogoča samo na rezultatih.');
+    if (!this.settings.allowPause) throw new Error('Pavza v tej igri ni dovoljena.');
+    if (!Number(this.settings.revealSeconds)) throw new Error('Odštevanje ni vklopljeno - ni česa zaustaviti.');
+
+    if (this.paused) {
+      this.armAutoNext(Math.max(1000, this.autoLeftMs || 0));
+    } else {
+      if (this.autoTimer) clearTimeout(this.autoTimer);
+      this.autoTimer = null;
+      this.autoLeftMs = Math.max(0, (this.autoEndsAt || Date.now()) - Date.now());
+      this.autoEndsAt = null;
+      this.paused = true;
+    }
+    this.changed();
   }
 
   submit(playerId, payload) {
@@ -543,6 +590,7 @@ export class Room {
 
     this.phase = 'reveal';
     this.revealing = false;
+    this.startAutoNext();
     this.changed();
   }
 
@@ -757,6 +805,7 @@ export class Room {
       room.questionStartedAt = Date.now();
       room.timer = setTimeout(() => room.reveal(), room.timeLimit() * 1000 + 500);
     }
+    if (room.phase === 'reveal') room.startAutoNext();
     return room;
   }
 
@@ -791,6 +840,19 @@ export class Room {
 
   // ---------- pogledi ----------
 
+  /** Odštevanje do naslednjega vprašanja, kot ga vidita oba zaslona. */
+  autoState() {
+    if (this.phase !== 'reveal') return null;
+    return {
+      enabled: Number(this.settings.revealSeconds) > 0,
+      allowPause: Boolean(this.settings.allowPause),
+      paused: this.paused,
+      endsAt: this.autoEndsAt,
+      leftMs: this.paused ? this.autoLeftMs : null,
+      total: Number(this.settings.revealSeconds) || 0,
+    };
+  }
+
   hostState() {
     const q = this.current;
     return {
@@ -819,6 +881,7 @@ export class Room {
       } : null,
       timeLimit: this.timeLimit(),
       startedAt: this.questionStartedAt,
+      auto: this.autoState(),
       reveal: this.phase === 'reveal' ? this.history[this.history.length - 1] : null,
       awards: this.phase === 'ended' ? this.awards() : null,
       history: this.phase === 'ended' ? this.history : null,
@@ -851,6 +914,7 @@ export class Room {
       index: this.index,
       timeLimit: this.timeLimit(),
       startedAt: this.questionStartedAt,
+      auto: this.autoState(),
       standings: this.coupleScores().slice(0, 5),
     };
 
