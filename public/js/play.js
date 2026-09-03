@@ -1,7 +1,7 @@
 // Telefonski odjemalec CKViz.
 
 import { el, h, clear, Wire, toast, burst, store, OPT_GLYPHS, pct } from '/js/common.js';
-import { setAvatars, av, avPair, avatarName } from '/js/avatars.js';
+import { av, avPair } from '/js/avatars.js';
 
 const CODE = (location.pathname.match(/^\/p\/([A-Za-z0-9]{4})/)?.[1] || '').toUpperCase();
 const app = el('#app');
@@ -16,10 +16,7 @@ let draft = { qid: null, choice: null, predict: null, confidence: 1, text: '', l
 let ticker = null;
 
 fetch('/api/info').then((r) => r.json()).then((info) => {
-  if (info.avatars?.length) {
-    setAvatars(info.avatars);
-    avatars = info.avatars.map((a) => a.id);
-  }
+  if (info.avatars?.length) avatars = info.avatars;
   if (!joined) render();
 }).catch(() => {});
 
@@ -107,9 +104,9 @@ function viewJoin() {
   const input = h('input', { type: 'text', id: 'nick', maxlength: '16', placeholder: 'npr. Ana', autocomplete: 'nickname' });
   const grid = h('div', { class: 'avatars' },
     avatars.map((a) => h('button', {
-      class: `av ${a === chosenAvatar ? 'sel' : ''}`, type: 'button', title: avatarName(a),
+      class: `av ${a === chosenAvatar ? 'sel' : ''}`, type: 'button',
       onclick: () => { chosenAvatar = a; render(); setTimeout(() => el('#nick')?.focus(), 0); },
-    }, av(a, 40))));
+    }, av(a, 34))));
 
   const submit = () => {
     const name = input.value.trim();

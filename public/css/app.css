@@ -119,10 +119,12 @@ select option { background: var(--card-solid); }
 label.field { display: block; }
 label.field > span { display: block; margin-bottom: 6px; }
 
-/* ---- avatarji ---- */
-.av-i { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; line-height: 1; }
-.av-i svg { display: block; border-radius: 26%; }
-.av-pair { display: inline-flex; gap: 3px; align-items: center; flex: 0 0 auto; }
+/* ---- znaki igralcev ---- */
+.av-i {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; line-height: 1; user-select: none;
+}
+.av-pair { display: inline-flex; gap: 2px; align-items: center; flex: 0 0 auto; }
 
 /* ---- značke ---- */
 .chip {

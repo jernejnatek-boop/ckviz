@@ -1,7 +1,7 @@
 // Odjemalec za velik zaslon (PC): priprava kviza, potek in statistika.
 
 import { el, h, clear, Wire, toast, burst, store, OPT_GLYPHS, pct, sloCount, IGRALCI, VPRASANJA } from '/js/common.js';
-import { setAvatars, av, avPair } from '/js/avatars.js';
+import { av, avPair } from '/js/avatars.js';
 
 const app = el('#app');
 const ctrl = el('#ctrl');
@@ -30,7 +30,7 @@ const setup = store('ckviz:setup') || {
 
 fetch('/api/info')
   .then((r) => r.json())
-  .then((i) => { info = i; setAvatars(i.avatars); })
+  .then((i) => { info = i; })
   .catch(() => {})
   .finally(() => { infoLoaded = true; maybeOpen(); });
 
