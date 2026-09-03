@@ -204,8 +204,13 @@ in mu podaj `PUBLIC_URL=https://tvoja-domena`.
    Klikneš *Ustvari vprašanja* - Claude napiše krog v slovenščini. Vprašanja lahko
    pregledaš in katerokoli pobrišeš, z *Dodaj še* pa krog razširiš. Dober krog
    shrani z *Shrani ta kviz* in ga naslednjič naložiš v sekundi.
-2. **Čakalnica**: igralci vstopijo, izberejo ime in znak, nato **na telefonu izbere
-   vsak svoj par** - izbira je vzajemna, potrditi morata oba.
+2. **Čakalnica**: igralci vstopijo, izberejo ime in enega od **24 znakov**, nato
+   **na telefonu izbere vsak svoj par** - izbira je vzajemna, potrditi morata oba.
+
+   Znaki niso emojiji, ampak lastni liki, izrisani v SVG - Iskra, Zvezda, Val, Ogenj,
+   Megla ... Vsak je barvna ploščica z gradientom, obrazom in dodatkom (krona, žarek,
+   slušalke, rogovi, iskrice). Ker so risani in ne emojiji, so na vsakem telefonu,
+   računalniku in projektorju videti popolnoma enako in ostanejo ostri v vsaki velikosti.
 
    Pare lahko urejaš tudi z velikega zaslona: **klikni dva igralca in ju povežeš**,
    **💔** razdruži par, **✕** odstrani igralca iz sobe, gumba *Samodejno sestavi pare*
@@ -247,6 +252,8 @@ src/rooms.js           stanje sobe, pari, statistika, nagrade, serializacija
 src/storage.js         shranjevanje kvizov, zgodovine iger in živih sob
 src/ai.js              generiranje vprašanj s Claudom
 src/questionBank.js    vgrajen nabor vprašanj
+src/avatars.js         opis 24 likov (barve, obraz, dodatek)
+public/js/avatars.js   izris likov v SVG
 public/host.html|js    velik zaslon
 public/play.html|js    telefon
 public/index.html      vstopna stran s kodo sobe

@@ -1,6 +1,7 @@
 // Odjemalec za velik zaslon (PC): priprava kviza, potek in statistika.
 
 import { el, h, clear, Wire, toast, burst, store, OPT_GLYPHS, pct, sloCount, IGRALCI, VPRASANJA } from '/js/common.js';
+import { setAvatars, av, avPair } from '/js/avatars.js';
 
 const app = el('#app');
 const ctrl = el('#ctrl');
@@ -29,7 +30,7 @@ const setup = store('ckviz:setup') || {
 
 fetch('/api/info')
   .then((r) => r.json())
-  .then((i) => { info = i; })
+  .then((i) => { info = i; setAvatars(i.avatars); })
   .catch(() => {})
   .finally(() => { infoLoaded = true; maybeOpen(); });
 
@@ -185,7 +186,7 @@ function viewLobby() {
 
     h('p', { class: 'muted small', style: 'margin-top:10px' },
       pairPick
-        ? `Izbran/a ${picked.emoji} ${picked.name} - klikni še njegov ali njen par.`
+        ? `Izbran/a je ${picked.name} - klikni še njegov ali njen par.`
         : 'Klikni dva igralca, da ju povežeš. 💔 razdruži par, ✕ odstrani igralca iz sobe.'),
 
     h('div', { class: 'player-grid', style: 'margin-top:12px' },
@@ -204,7 +205,7 @@ function viewLobby() {
                 render();
               },
             },
-              h('span', { style: 'font-size:20px' }, p.emoji),
+              av(p.emoji, 26),
               h('span', {}, p.name),
               partner ? h('span', { class: 'muted small' }, `💘 ${partner.name}`) : h('span', { class: 'muted small' }, 'brez para'),
               partner ? h('span', {
@@ -420,8 +421,9 @@ function viewHistory() {
                 h('div', { style: 'font-weight:700' }, g.theme || 'Kviz'),
                 h('div', { class: 'muted', style: 'font-size:12px; margin-top:3px' },
                   `${fmtDate(g.playedAt)} · ${sloCount(g.playerCount, IGRALCI)} · ${sloCount(g.questionCount, VPRASANJA)}`),
-                winner ? h('div', { style: 'font-size:13px; margin-top:4px' },
-                  `🥇 ${winner.emojis?.join('') || ''} ${winner.name} · ${winner.score} točk${winner.chemistry != null ? ` · kemija ${winner.chemistry} %` : ''}`) : null,
+                winner ? h('div', { class: 'row', style: 'font-size:13px; margin-top:5px; gap:6px' },
+                  '🥇', avPair(winner.emojis, 18),
+                  h('span', {}, `${winner.name} · ${winner.score} točk${winner.chemistry != null ? ` · kemija ${winner.chemistry} %` : ''}`)) : null,
                 (g.awards || []).length ? h('div', { class: 'muted', style: 'font-size:11px; margin-top:4px' },
                   g.awards.map((a) => `${a.emoji} ${a.name}`).join(' · ')) : null),
               h('span', { class: 'del', onclick: () => { if (confirm('Izbrišem ta zapis?')) wire.send({ t: 'host:deleteGame', id: g.id }); } }, '✕'));
@@ -536,7 +538,7 @@ function viewQuestion() {
     h('div', { class: 'card' },
       h('div', { class: 'tiny', style: 'margin-bottom:12px' }, 'Igralci'),
       h('div', { class: 'player-grid' }, state.players.map((p) => h('div', { class: `pchip ${p.connected ? '' : 'off'}` },
-        h('span', { style: 'font-size:18px' }, p.emoji), h('span', {}, p.name))))),
+        av(p.emoji, 22), h('span', {}, p.name))))),
     h('div', { class: 'card' },
       h('div', { class: 'tiny', style: 'margin-bottom:12px' }, 'Vrstni red'),
       h('div', { class: 'pill-list' }, state.couples.slice(0, 6).map((c, i) => rankRow(c, i)))));
@@ -615,7 +617,7 @@ function viewReveal() {
             class: 'bar-fill',
             style: `width:${pct(n, total)}%; background:var(--o${i})`,
           })),
-          h('span', { class: 'n' }, who.map((p) => p.emoji).join('') || '–')));
+          who.length ? avPair(who.map((p) => p.emoji), 20) : h('span', { class: 'n muted' }, '–')));
     })),
     q.explanation ? h('p', { class: 'muted', style: 'margin-top:6px; font-size:15px' }, `💡 ${q.explanation}`) : null);
 
@@ -654,10 +656,10 @@ function viewRevealOpen(r, q) {
         h('div', { class: 'bar-fill', style: `width:${sim}%; background:linear-gradient(90deg,var(--violet),var(--pink))` })),
       h('div', { class: 'open-two' },
         h('div', { class: 'open-ans' },
-          h('div', { class: 'who' }, `${p.a?.emoji || ''} ${p.a?.name || ''}`),
+          h('div', { class: 'who' }, av(p.a?.emoji, 18), p.a?.name || ''),
           h('p', {}, p.a?.text || '—')),
         h('div', { class: 'open-ans' },
-          h('div', { class: 'who' }, `${p.b?.emoji || ''} ${p.b?.name || ''}`),
+          h('div', { class: 'who' }, av(p.b?.emoji, 18), p.b?.name || ''),
           h('p', {}, p.b?.text || '—'))),
       note ? h('p', { class: 'muted', style: 'margin-top:12px; font-size:14px' }, `💬 ${note}`) : null,
       h('div', { style: 'margin-top:10px; text-align:right; font-weight:800; color:var(--ok)' }, `+${p.gain}`));
@@ -678,7 +680,7 @@ function viewRevealOpen(r, q) {
         solos.length ? h('div', { style: 'margin-top:18px' },
           h('div', { class: 'tiny', style: 'margin-bottom:8px' }, 'Brez para'),
           h('div', { class: 'stack' }, solos.map((sp) => h('div', { class: 'pair-card' },
-            h('div', { class: 'who', style: 'font-size:11px; color:var(--muted)' }, `${sp.emoji} ${sp.name}`),
+            h('div', { class: 'who', style: 'font-size:11px; color:var(--muted)' }, av(sp.emoji, 18), sp.name),
             h('p', { style: 'margin-top:6px' }, sp.text || '—'))))) : null),
       h('div', { class: 'card' },
         h('div', { class: 'tiny', style: 'margin-bottom:12px' }, 'Lestvica'),
@@ -702,7 +704,8 @@ function rankRow(c, i, reveal) {
   const gain = reveal ? c.members.reduce((s, m) => s + (reveal.perPlayer.find((p) => p.id === m.id)?.gain || 0), 0) : 0;
   return h('div', { class: `rank ${i === 0 ? 'top' : ''}` },
     h('span', { class: 'pos' }, `${i + 1}.`),
-    h('span', { class: 'who' }, `${c.emojis.join('')} ${c.name}`),
+    avPair(c.emojis, 24),
+    h('span', { class: 'who' }, c.name),
     c.chemistry != null ? h('span', { class: 'chip', style: 'font-size:11px' }, `🔗 ${c.chemistry}%`) : null,
     h('span', { class: 'pts' }, c.score),
     gain ? h('span', { style: 'color:var(--ok); font-weight:800; font-size:13px; min-width:44px; text-align:right' }, `+${gain}`) : null);
@@ -717,7 +720,7 @@ function viewEnd() {
 
   const box = (c, cls, medal) => c ? h('div', { class: `step-box ${cls}` },
     h('div', { style: 'font-size:36px' }, medal),
-    h('div', { style: 'font-size:26px; margin-top:6px' }, c.emojis.join('')),
+    h('div', { style: 'margin-top:8px; display:flex; justify-content:center' }, avPair(c.emojis, 34)),
     h('div', { style: 'font-weight:900; font-size:19px; margin-top:6px' }, c.name),
     h('div', { style: 'font-size:30px; font-weight:900; margin-top:8px' }, c.score),
     c.chemistry != null ? h('div', { class: 'muted small', style: 'margin-top:4px' }, `kemija ${c.chemistry} %`) : null) : h('div');
@@ -738,7 +741,8 @@ function viewEnd() {
     h('div', { class: 'pill-list' },
       cs.flatMap((c) => c.members).sort((a, b) => b.score - a.score).map((m, i) => h('div', { class: 'rank' },
         h('span', { class: 'pos' }, `${i + 1}.`),
-        h('span', { class: 'who' }, `${m.emoji} ${m.name}`),
+        av(m.emoji, 24),
+        h('span', { class: 'who' }, m.name),
         h('span', { class: 'pts' }, m.score)))));
 
   const awards = h('div', { class: 'card' },
@@ -746,7 +750,8 @@ function viewEnd() {
     h('div', { class: 'awards' }, (state.awards || []).map((a) => h('div', { class: 'award' },
       h('div', { style: 'font-size:26px' }, a.emoji),
       h('div', { style: 'font-weight:800; margin-top:6px' }, a.label),
-      h('div', { style: 'font-size:17px; margin-top:4px' }, `${a.playerEmoji} ${a.name}`),
+      h('div', { class: 'row', style: 'font-size:17px; margin-top:6px; gap:7px' },
+        avPair(a.playerEmoji, 22), h('span', {}, a.name)),
       h('div', { class: 'muted small', style: 'margin-top:2px' }, a.value)))));
 
   const chem = cs.filter((c) => c.chemistry != null);
@@ -754,7 +759,7 @@ function viewEnd() {
     h('div', { class: 'tiny', style: 'margin-bottom:14px' }, 'Kemijomer - kako dobro se poznata'),
     h('div', { class: 'stack' }, chem.map((c) => h('div', {},
       h('div', { class: 'row spread', style: 'margin-bottom:6px' },
-        h('span', { style: 'font-weight:700' }, `${c.emojis.join('')} ${c.name}`),
+        h('span', { class: 'row', style: 'font-weight:700; gap:7px' }, avPair(c.emojis, 20), c.name),
         h('span', { style: 'font-weight:900' }, `${c.chemistry} %`)),
       h('div', { class: 'bar-track', style: 'height:14px' },
         h('div', { class: 'bar-fill', style: `width:${c.chemistry}%; background:linear-gradient(90deg,var(--violet),var(--pink))` })))))) : null;

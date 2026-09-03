@@ -1,12 +1,13 @@
 // Telefonski odjemalec CKViz.
 
 import { el, h, clear, Wire, toast, burst, store, OPT_GLYPHS, pct } from '/js/common.js';
+import { setAvatars, av, avPair, avatarName } from '/js/avatars.js';
 
 const CODE = (location.pathname.match(/^\/p\/([A-Za-z0-9]{4})/)?.[1] || '').toUpperCase();
 const app = el('#app');
 
 let state = null;         // zadnji 'you' paket
-let avatars = ['🦊', '🐼', '🐙', '🦄', '🐝', '🐧', '🦁', '🐸', '🦉', '🐬', '🦖', '🐢'];
+let avatars = [];
 let chosenAvatar = null;
 let joined = false;
 
@@ -15,7 +16,10 @@ let draft = { qid: null, choice: null, predict: null, confidence: 1, text: '', l
 let ticker = null;
 
 fetch('/api/info').then((r) => r.json()).then((info) => {
-  if (info.avatars?.length) avatars = info.avatars;
+  if (info.avatars?.length) {
+    setAvatars(info.avatars);
+    avatars = info.avatars.map((a) => a.id);
+  }
   if (!joined) render();
 }).catch(() => {});
 
@@ -70,7 +74,10 @@ const wire = new Wire({
 
 function render() {
   const name = state?.me?.name;
-  el('#tbName').textContent = name ? `${state.me.emoji} ${name}` : 'CKViz';
+  const tb = el('#tbName');
+  clear(tb);
+  if (name) { tb.append(av(state.me.emoji, 20), document.createTextNode(` ${name}`)); }
+  else tb.textContent = 'CKViz';
   el('#tbSub').textContent = state
     ? (state.phase === 'lobby' ? `soba ${state.code} · čakalnica`
       : state.phase === 'ended' ? 'konec igre'
@@ -100,9 +107,9 @@ function viewJoin() {
   const input = h('input', { type: 'text', id: 'nick', maxlength: '16', placeholder: 'npr. Ana', autocomplete: 'nickname' });
   const grid = h('div', { class: 'avatars' },
     avatars.map((a) => h('button', {
-      class: `av ${a === chosenAvatar ? 'sel' : ''}`, type: 'button',
+      class: `av ${a === chosenAvatar ? 'sel' : ''}`, type: 'button', title: avatarName(a),
       onclick: () => { chosenAvatar = a; render(); setTimeout(() => el('#nick')?.focus(), 0); },
-    }, a)));
+    }, av(a, 40))));
 
   const submit = () => {
     const name = input.value.trim();
@@ -127,10 +134,11 @@ function viewLobby() {
   const others = state.lobby || [];
 
   const head = h('div', { class: 'card center' },
-    h('div', { style: 'font-size:46px' }, me.emoji),
-    h('h2', { style: 'margin-top:6px' }, me.name),
+    h('div', { style: 'display:flex; justify-content:center' }, av(me.emoji, 72)),
+    h('h2', { style: 'margin-top:10px' }, me.name),
     partner
-      ? h('p', { style: 'margin-top:10px; font-size:16px' }, 'V paru z ', h('b', {}, `${partner.emoji} ${partner.name}`))
+      ? h('p', { class: 'row', style: 'margin-top:10px; font-size:16px; justify-content:center; gap:7px' },
+          'V paru z ', av(partner.emoji, 24), h('b', {}, partner.name))
       : h('p', { class: 'muted small', style: 'margin-top:10px' }, 'Izberi svoj par spodaj.'),
     partner ? h('button', { class: 'btn sm ghost', style: 'margin-top:12px', onclick: () => wire.send({ t: 'unpair' }) }, 'Razdruži') : null);
 
@@ -141,7 +149,7 @@ function viewLobby() {
           class: 'pp', disabled: o.paired,
           onclick: () => wire.send({ t: 'pair', targetId: o.id }),
         },
-        h('span', { style: 'font-size:24px' }, o.emoji),
+        av(o.emoji, 30),
         h('span', {}, o.name),
         o.wantsMe ? h('span', { class: 'want' }, 'te je izbral/a!')
           : state.pendingPartner === o.id ? h('span', { class: 'want muted' }, 'čakam ...')
@@ -317,10 +325,10 @@ function viewReveal() {
       h('h3', { style: 'font-size:17px; margin-top:8px; line-height:1.35' }, q.text),
       h('div', { class: 'answers' },
         h('div', { class: 'ans mine' },
-          h('div', { class: 'who' }, `${me?.emoji || '🙂'} ti`),
+          h('div', { class: 'who' }, av(me?.emoji, 18), 'ti'),
           h('p', {}, me?.text || '—')),
         partner ? h('div', { class: 'ans' },
-          h('div', { class: 'who' }, `${partner.emoji} ${partner.name}`),
+          h('div', { class: 'who' }, av(partner.emoji, 18), partner.name),
           h('p', {}, partner.text || '—')) : null),
       sim != null ? h('div', { style: 'margin-top:16px' },
         h('div', { class: 'row spread', style: 'margin-bottom:6px' },
@@ -366,9 +374,9 @@ function viewReveal() {
     mirror = h('div', { class: 'card', style: 'margin-top:14px' },
       h('div', { class: 'tiny' }, 'Zrcalo - kaj sta izbrala'),
       h('div', { class: 'mirror' },
-        h('div', { class: 'side' }, h('span', { style: 'font-size:24px' }, me?.emoji || '🙂'), h('b', {}, labelOf(q, me?.choice))),
+        h('div', { class: 'side' }, h('div', { style: 'display:flex; justify-content:center' }, av(me?.emoji, 30)), h('b', {}, labelOf(q, me?.choice))),
         h('div', { class: 'link' }, same ? '💞' : '🪞'),
-        h('div', { class: 'side' }, h('span', { style: 'font-size:24px' }, partner.emoji), h('b', {}, labelOf(q, partner.choice)))),
+        h('div', { class: 'side' }, h('div', { style: 'display:flex; justify-content:center' }, av(partner.emoji, 30)), h('b', {}, labelOf(q, partner.choice)))),
       h('p', { class: 'small center', style: 'margin-top:12px' },
         guessed ? `🎯 Uganil/a si, kaj bo izbral/a ${partner.name}.`
           : me?.predict != null ? `❌ Mislil/a si ${labelOf(q, me.predict)} - pa ni bilo tako.`
@@ -388,7 +396,8 @@ function standingsCard() {
     h('div', { class: 'tiny', style: 'margin-bottom:10px' }, 'Vrstni red'),
     h('div', { class: 'pill-list' }, (state.standings || []).map((c, i) => h('div', { class: `rank ${i === 0 ? 'top' : ''}` },
       h('span', { class: 'pos' }, `${i + 1}.`),
-      h('span', { class: 'who' }, `${c.emojis.join('')} ${c.name}`),
+      avPair(c.emojis, 22),
+      h('span', { class: 'who' }, c.name),
       h('span', { class: 'pts' }, c.score)))));
 }
 
@@ -417,7 +426,8 @@ function viewEnd() {
     h('div', { class: 'tiny', style: 'margin-bottom:10px' }, 'Končna lestvica'),
     h('div', { class: 'pill-list' }, f.couples.map((c, i) => h('div', { class: `rank ${i === 0 ? 'top' : ''}` },
       h('span', { class: 'pos' }, `${i + 1}.`),
-      h('span', { class: 'who' }, `${c.emojis.join('')} ${c.name}`),
+      avPair(c.emojis, 22),
+      h('span', { class: 'who' }, c.name),
       h('span', { class: 'pts' }, c.score)))));
 
   if (mine === 0) setTimeout(() => burst('🎊', 6), 200);

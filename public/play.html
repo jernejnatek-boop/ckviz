@@ -19,7 +19,7 @@
   .dot.wait { background: var(--amber); }
 
   .avatars { display: flex; flex-wrap: wrap; gap: 8px; }
-  .av { font-size: 26px; padding: 8px; border-radius: 12px; border: 2px solid transparent; background: rgba(255,255,255,.06); cursor: pointer; }
+  .av { padding: 5px; border-radius: 14px; border: 2px solid transparent; background: rgba(255,255,255,.06); cursor: pointer; line-height: 0; }
   .av.sel { border-color: var(--pink); background: rgba(255,77,148,.18); }
 
   .step { margin-top: 18px; }
@@ -62,7 +62,7 @@
   .answers { display: grid; gap: 10px; margin-top: 14px; }
   .ans { padding: 13px 15px; border-radius: 15px; background: rgba(255,255,255,.06); border: 1px solid var(--line); }
   .ans.mine { border-color: rgba(255,77,148,.45); background: rgba(255,77,148,.10); }
-  .ans .who { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 700; margin-bottom: 6px; }
+  .ans .who { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 700; margin-bottom: 6px; }
   .ans p { font-size: 16px; line-height: 1.45; }
   textarea { min-height: 110px; }
 
@@ -81,7 +81,7 @@
 <div class="topbar">
   <div class="brand-mark" style="width:32px;height:32px;font-size:16px;border-radius:10px">💘</div>
   <div class="grow">
-    <div style="font-weight:800; font-size:15px" id="tbName">CKViz</div>
+    <div style="font-weight:800; font-size:15px; display:flex; align-items:center; gap:6px" id="tbName">CKViz</div>
     <div class="muted" style="font-size:11px" id="tbSub">povezovanje ...</div>
   </div>
   <div style="text-align:right">

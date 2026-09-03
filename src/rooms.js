@@ -3,12 +3,13 @@
 import { randomUUID } from 'node:crypto';
 import { MODES, DEFAULT_SETTINGS, MAX_PLAYERS, WEIGHT_LEVELS, POINTS, scoreSubmission, isCorrect, sameAnswer, questionWeight, timeLimitFor } from './game.js';
 import { judgeOpenAnswers } from './ai.js';
+import { AVATAR_IDS } from './avatars.js';
 
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // brez I, O, 0, 1
 const REVEAL_DELAY_MS = 1200;
 const ROOM_TTL_MS = 1000 * 60 * 60 * 6;
 
-export const AVATARS = ['🦊', '🐼', '🐙', '🦄', '🐝', '🐧', '🦁', '🐸', '🦉', '🐬', '🦖', '🐢'];
+export { AVATARS } from './avatars.js';
 
 function code(len = 4) {
   let s = '';
@@ -103,7 +104,11 @@ export class Room {
       id: randomUUID(),
       token: randomUUID(),
       name: clean,
-      emoji: emoji && !usedEmoji.has(emoji) ? emoji : AVATARS.find((a) => !usedEmoji.has(a)) || '🎈',
+      // Polje se iz zgodovinskih razlogov imenuje emoji, vsebuje pa oznako
+      // avatarja (npr. "iskra"). Izris pozna oboje, zato stare igre ostanejo berljive.
+      emoji: emoji && AVATAR_IDS.includes(emoji) && !usedEmoji.has(emoji)
+        ? emoji
+        : AVATAR_IDS.find((a) => !usedEmoji.has(a)) || AVATAR_IDS[0],
       partnerId: null,
       pendingPartner: null,
       score: 0,
@@ -575,7 +580,7 @@ export class Room {
       if (!rows.length) return;
       rows.sort((a, b) => b.v - a.v);
       const w = rows[0];
-      out.push({ label, emoji, name: w.p.name, playerEmoji: w.p.emoji, value: value(w) });
+      out.push({ label, emoji, name: w.p.name, playerEmoji: [w.p.emoji], value: value(w) });
     };
 
     // --- posamezniki ---
@@ -677,7 +682,7 @@ export class Room {
     if (chem.length && chem[0].chemistry > 0) {
       out.push({
         label: 'Najbolj usklajena', emoji: '🔗',
-        name: chem[0].name, playerEmoji: chem[0].emojis.join(''),
+        name: chem[0].name, playerEmoji: chem[0].emojis,
         value: `${chem[0].chemistry} % kemije`,
       });
     }
@@ -685,7 +690,7 @@ export class Room {
       const last = chem[chem.length - 1];
       out.push({
         label: 'Dva svetova', emoji: '🌗',
-        name: last.name, playerEmoji: last.emojis.join(''),
+        name: last.name, playerEmoji: last.emojis,
         value: `${last.chemistry} % kemije - je še prostor za rast`,
       });
     }
@@ -705,7 +710,7 @@ export class Room {
       const t = lopsided[0];
       out.push({
         label: 'Enosmerna ulica', emoji: '🪞',
-        name: t.name, playerEmoji: `${t.better.emoji}${t.other.emoji}`,
+        name: t.name, playerEmoji: [t.better.emoji, t.other.emoji],
         value: `${t.better.name} pozna ${t.other.name} precej bolje kot obratno`,
       });
     }
