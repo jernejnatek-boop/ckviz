@@ -55,7 +55,7 @@ const wire = new Wire({
       state = msg;
       joined = true;
       if (state.phase === 'question' && (prevPhase !== 'question' || prevIdx !== state.index)) {
-        draft = { qid: state.question.id, choice: state.question.multi ? [] : null, predict: null, confidence: 1, text: '', locked: false };
+        draft = { qid: state.question.id, choice: state.question.multi ? [] : null, predict: null, confidence: 1, text: state.mine?.text || '', locked: false };
         if (navigator.vibrate) navigator.vibrate(30);
       }
       if (state.phase === 'reveal' && prevPhase === 'question') {
@@ -84,14 +84,28 @@ function render() {
     : `soba ${CODE || '—'}`;
   el('#tbScore').textContent = state?.me?.score ?? 0;
 
+  // Med pisanjem opisnega odgovora zaslona ne prerisujemo: novo vozlišče bi
+  // ukradlo fokus, na telefonu bi se zaprla tipkovnica in ostanek besedila bi
+  // šel v prazno. Osveži se takoj, ko se vprašanje ali faza spremenita.
+  if (typingOpenAnswer()) return;
+
   startRevealTicker();
   clear(app);
+  renderedQid = state?.phase === 'question' ? state.question?.id : null;
   if (!joined || !state) return app.append(viewJoin());
   if (state.phase === 'lobby') return app.append(viewLobby());
   if (state.phase === 'question') return app.append(viewQuestion());
   if (state.phase === 'judging') return app.append(viewJudging());
   if (state.phase === 'reveal') return app.append(viewReveal());
   if (state.phase === 'ended') return app.append(viewEnd());
+}
+
+/** Ali uporabnik prav zdaj piše v polje za opisni odgovor? */
+function typingOpenAnswer() {
+  if (state?.phase !== 'question' || !state.question?.open) return false;
+  if (renderedQid !== state.question.id) return false;
+  const area = el('#openAnswer');
+  return Boolean(area && document.activeElement === area);
 }
 
 function viewJoin() {
@@ -164,7 +178,7 @@ function viewLobby() {
 function viewQuestion() {
   const q = state.question;
   const mine = state.mine;
-  if (draft.qid !== q.id) draft = { qid: q.id, choice: q.multi ? [] : null, predict: null, confidence: 1, text: '', locked: false };
+  if (draft.qid !== q.id) draft = { qid: q.id, choice: q.multi ? [] : null, predict: null, confidence: 1, text: state.mine?.text || '', locked: false };
   if (mine?.locked) draft.locked = true;
 
   const header = h('div', { class: 'card' },
@@ -201,7 +215,12 @@ function viewQuestion() {
       lock.disabled = !draft.text.trim();
       lock.textContent = draft.text.trim() ? 'Zakleni odgovor 🔒' : 'Napiši odgovor';
       clearTimeout(area._t);
-      area._t = setTimeout(() => pushDraft(false), 600);
+      area._t = setTimeout(() => pushDraft(false), 1500);
+    });
+    // Ob izgubi fokusa shranimo takoj - tudi če je bilo tipkanje kratko.
+    area.addEventListener('blur', () => {
+      clearTimeout(area._t);
+      pushDraft(false);
     });
     const lock = h('button', {
       class: 'btn primary big', disabled: !draft.text.trim(),
@@ -474,6 +493,7 @@ function pushDraft(locked) {
   wire.send({ t: 'answer', qid: draft.qid, choice: draft.choice, text: draft.text, predict: draft.predict, confidence: draft.confidence, locked });
 }
 
+let renderedQid = null;   // katero vprašanje je trenutno izrisano
 let revealTicker = null;
 function startRevealTicker() {
   clearInterval(revealTicker);
