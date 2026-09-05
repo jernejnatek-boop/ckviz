@@ -118,6 +118,13 @@ function relayToHost(room, msg) {
   }
 }
 
+/** Sporočilo vsem v sobi - voditelju in telefonom. */
+function relayToRoom(room, msg) {
+  for (const [ws, meta] of sockets) {
+    if (meta.roomCode === room.code) send(ws, msg);
+  }
+}
+
 function fail(ws, message, code) {
   send(ws, { t: 'error', message: String(message || 'Nekaj je šlo narobe.'), code });
 }
@@ -395,6 +402,13 @@ async function handle(ws, msg) {
     case 'host:pause':
       return hostRoom().togglePause();
 
+    case 'host:addTime': {
+      const room = hostRoom();
+      const sec = room.addTime(msg.seconds);
+      relayToRoom(room, { t: 'toast', kind: 'ok', message: `⏱ Dodanih ${sec} sekund.` });
+      return;
+    }
+
     case 'host:end': {
       const room = hostRoom();
       const hadGame = room.history.length > 0;
@@ -414,8 +428,11 @@ async function handle(ws, msg) {
       if (player) {
         player.connected = true;
       } else {
-        if (room.phase !== 'lobby') throw new Error('Igra že poteka. Počakaj na naslednji krog.');
+        // Zamudnik lahko vstopi tudi sredi igre - začne z nič točkami.
         player = room.addPlayer({ name: msg.name, emoji: msg.emoji });
+        if (room.phase !== 'lobby') {
+          relayToHost(room, { t: 'toast', kind: 'ok', message: `${player.emoji} ${player.name} se je pridružil${room.phase === 'question' ? ' med vprašanjem' : ''}.` });
+        }
       }
       meta.roomCode = room.code;
       meta.role = 'player';

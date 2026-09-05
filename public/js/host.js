@@ -2,6 +2,7 @@
 
 import { el, h, clear, Wire, toast, burst, store, OPT_GLYPHS, pct, sloCount, IGRALCI, VPRASANJA } from '/js/common.js';
 import { av, avPair } from '/js/avatars.js';
+import { sfx, soundOn, toggleSound } from '/js/sound.js';
 
 const app = el('#app');
 const ctrl = el('#ctrl');
@@ -11,6 +12,8 @@ let state = null;
 let joinUrl = '';
 let ticker = null;
 let autoTicker = null;
+let lastWhole = null;   // zadnja odtiktakana sekunda
+let lastTickQ = null;   // pri katerem vprašanju
 let library = { packs: [], games: [], saving: false };
 let password = store('ckviz:pw') || '';
 let authNeeded = false;
@@ -81,6 +84,7 @@ const wire = new Wire({
     if (msg.t === 'room') {
       const prev = state;
       state = msg;
+      playSounds(prev, msg);
       if (!joinUrl) joinUrl = `${location.origin}/p/${msg.code}`;
       if (prev?.phase === 'question' && msg.phase === 'reveal') celebrate(msg);
       render();
@@ -108,6 +112,17 @@ function openSession() {
   } });
 }
 
+/** Zvok se odzove na to, kar se je spremenilo med dvema stanjema. */
+function playSounds(prev, next) {
+  if (!prev) return;
+  if (prev.phase === 'question' && next.phase === 'reveal') sfx.reveal();
+  if (prev.phase !== 'ended' && next.phase === 'ended') sfx.win();
+  if (prev.phase === 'reveal' && next.phase === 'reveal'
+      && prev.auto?.paused !== next.auto?.paused) sfx.pause(Boolean(next.auto?.paused));
+  if (next.phase === 'question' && prev.phase === 'question'
+      && next.index === prev.index && next.answered > prev.answered) sfx.answer();
+}
+
 function celebrate(s) {
   const best = s.reveal?.pairs?.filter((p) => p.match) || [];
   if (best.length) burst('💞', Math.min(6, best.length * 2));
@@ -128,6 +143,14 @@ function render() {
   else if (state.phase === 'judging') { app.append(viewJudging()); }
   else if (state.phase === 'reveal') { app.append(viewReveal()); controlsReveal(); }
   else if (state.phase === 'ended') { app.append(viewEnd()); controlsEnd(); }
+}
+
+/** Vklop in izklop zvoka - izbira se zapomni. */
+function soundButton() {
+  return h('button', {
+    class: 'btn sm ghost', title: 'zvok na velikem zaslonu',
+    onclick: (e) => { const now = toggleSound(); e.target.textContent = now ? '🔊' : '🔇'; },
+  }, soundOn() ? '🔊' : '🔇');
 }
 
 function viewAuth() {
@@ -218,6 +241,7 @@ function viewLobby() {
             },
               av(p.emoji, 26),
               h('span', {}, p.name),
+              p.late ? h('span', { class: 'chip', style: 'font-size:10px; padding:2px 7px' }, 'pozneje') : null,
               partner ? h('span', { class: 'muted small' }, `💘 ${partner.name}`) : h('span', { class: 'muted small' }, 'brez para'),
               partner ? h('span', {
                 class: 'x', title: `Razdruži ${p.name} in ${partner.name}`,
@@ -348,6 +372,7 @@ function viewLobby() {
 
   return h('div', {},
     header(h('div', { class: 'row', style: 'gap:8px' },
+      soundButton(),
       h('span', { class: 'chip' }, `🕒 ${state.settings.timeLimit} s`),
       h('span', { class: 'chip' }, `✍️ ${state.settings.openTimeLimit} s`),
       h('span', { class: 'chip' }, state.settings.revealSeconds
@@ -576,7 +601,8 @@ function viewQuestion() {
     h('div', { class: 'card' },
       h('div', { class: 'tiny', style: 'margin-bottom:12px' }, 'Igralci'),
       h('div', { class: 'player-grid' }, state.players.map((p) => h('div', { class: `pchip ${p.connected ? '' : 'off'}` },
-        av(p.emoji, 22), h('span', {}, p.name))))),
+        av(p.emoji, 22), h('span', {}, p.name),
+        p.late ? h('span', { class: 'chip', style: 'font-size:10px; padding:2px 7px' }, 'pozneje') : null)))),
     h('div', { class: 'card' },
       h('div', { class: 'tiny', style: 'margin-bottom:12px' }, 'Vrstni red'),
       h('div', { class: 'pill-list' }, state.couples.slice(0, 6).map((c, i) => rankRow(c, i)))));
@@ -611,11 +637,22 @@ function ring() {
   const label = wrap.querySelector('.t');
   const tick = () => {
     if (!state || state.phase !== 'question' || !state.startedAt) return;
+    // Števec preživi osveževanje zaslona, sicer bi ob vsakem oddanem
+    // odgovoru izpadel en pisk.
+    if (lastTickQ !== state.index) { lastTickQ = state.index; lastWhole = null; }
     const elapsed = (Date.now() - state.startedAt) / 1000;
     const left = Math.max(0, state.timeLimit - elapsed);
-    label.textContent = Math.ceil(left);
+    const whole = Math.ceil(left);
+    label.textContent = whole;
     label.style.color = left <= 5 ? 'var(--red)' : 'var(--txt)';
     prog.setAttribute('stroke-dashoffset', String(circ * (1 - left / state.timeLimit)));
+
+    // Zvok samo ob prehodu v novo sekundo, ne ob vsakem osveževanju.
+    if (lastWhole !== null && whole !== lastWhole) {
+      if (whole > 0 && whole <= 5) sfx.tick(whole);
+      else if (whole === 0) sfx.timeout();
+    }
+    lastWhole = whole;
   };
   clearInterval(ticker);
   tick();
@@ -839,6 +876,10 @@ function controlsLobby() {
 
 function controlsQuestion() {
   ctrl.append(
+    h('button', {
+      class: 'btn', title: 'tipka +',
+      onclick: () => wire.send({ t: 'host:addTime', seconds: 15 }),
+    }, '+15 s'),
     h('button', { class: 'btn', onclick: () => wire.send({ t: 'host:reveal' }) }, 'Pokaži odgovore'),
     h('button', { class: 'btn ghost danger', onclick: () => wire.send({ t: 'host:end' }) }, 'Končaj'));
 }
@@ -890,6 +931,10 @@ function controlsEnd() {
 document.addEventListener('keydown', (e) => {
   if (e.target.matches('input, select, textarea')) return;
   if (state?.phase === 'judging') return; // med presojo ni prehodov
+  if ((e.key === '+' || e.key === '=') && state?.phase === 'question') {
+    e.preventDefault();
+    return wire.send({ t: 'host:addTime', seconds: 15 });
+  }
   if (e.key !== ' ' && e.key !== 'ArrowRight') return;
   e.preventDefault();
 

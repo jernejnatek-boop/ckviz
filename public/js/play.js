@@ -37,6 +37,10 @@ const wire = new Wire({
       if (/koda|Igra že|polna|zasedeno|ime/i.test(msg.message)) { joined = false; render(); }
       return;
     }
+    if (msg.t === 'toast') {
+      toast(msg.message, msg.kind === 'ok' ? 'ok' : 'warn');
+      return;
+    }
     if (msg.t === 'joined') {
       joined = true;
       store(`ckviz:${CODE}`, { token: msg.token, id: msg.id });

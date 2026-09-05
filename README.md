@@ -207,6 +207,10 @@ in mu podaj `PUBLIC_URL=https://tvoja-domena`.
 2. **Čakalnica**: igralci vstopijo, izberejo ime in enega od **36 znakov**, nato
    **na telefonu izbere vsak svoj par** - izbira je vzajemna, potrditi morata oba.
 
+   Kdor pride pozneje, se **lahko pridruži tudi sredi igre**: začne z nič točkami,
+   na velikem zaslonu dobi oznako *pozneje*, spariti pa ga je mogoče takoj. Parov,
+   ki že igrajo, med igro ni mogoče razdružiti - to bi pokvarilo njihovo statistiko.
+
    Na voljo je 36 znakov (živali), brez imen - znak stoji ob imenu igralca in
    ga pove že sam. Vsak igralec dobi svojega; če dva izbereta istega, strežnik
    drugemu dodeli prvega prostega.
@@ -219,7 +223,9 @@ in mu podaj `PUBLIC_URL=https://tvoja-domena`.
    Kdor ostane brez para, vseeno igra: pri Znanju in Več pravilnih dobi 1,4-kratni
    pribitek, ne more pa napovedovati partnerja ali loviti ujemanja.
 3. **Igra**: vprašanje se pokaže na velikem zaslonu, telefoni odgovarjajo.
-   Ko vsi zaklenejo, se odgovori razkrijejo sami.
+   Ko vsi zaklenejo, se odgovori razkrijejo sami. Če par še tišči odgovor, ga
+   s tipko **+** ali gumbom **+15 s** ne pustiš na cedilu - časovnik se podaljša
+   pri vseh in telefoni to tudi izpišejo.
 4. **Razkritje**: razporeditev odgovorov, *Zrcalo parov*, pridobljene točke in
    lestvica. Igralci lahko s telefona pošljejo emoji reakcijo, ki zaplava čez
    velik zaslon.
@@ -238,12 +244,20 @@ in mu podaj `PUBLIC_URL=https://tvoja-domena`.
 5. **Konec**: stopničke, nagrade, Kemijomer, celoten pregled kroga - in zapis
    v *Odigrane igre*. *Nov krog (iste ekipe)* obdrži pare in ponastavi točke.
 
+### Zvok
+
+Veliki zaslon **tiktaka zadnjih pet sekund**, zaigra ob razkritju odgovorov,
+žvenkne, ko kdo odda odgovor, in zaključi s fanfaro. Toni se ustvarijo v
+brskalniku, zato ni datotek in nič ne nalaga. Gumb **🔊 / 🔇** v glavi zvok
+izklopi, izbira se zapomni. Telefoni so tihi - zvoni samo veliki zaslon.
+
 **Bližnjice na velikem zaslonu:**
 
 | | |
 |---|---|
 | `preslednica` | v čakalnici začne igro, med vprašanjem razkrije odgovore, **na rezultatih zaustavi ali nadaljuje odštevanje** |
 | `→` | isto, le da na rezultatih vedno pelje na naslednje vprašanje |
+| `+` | med vprašanjem doda 15 sekund |
 
 Kadar pavza ni dovoljena, preslednica na rezultatih pelje naprej, tako kot prej.
 
@@ -271,6 +285,7 @@ src/ai.js              generiranje vprašanj s Claudom
 src/questionBank.js    vgrajen nabor vprašanj
 src/avatars.js         seznam znakov + preverba, da se noben ne ponovi
 public/js/avatars.js   enotna velikost in poravnava znakov
+public/js/sound.js     zvok velikega zaslona (Web Audio, brez datotek)
 public/host.html|js    velik zaslon
 public/play.html|js    telefon
 public/index.html      vstopna stran s kodo sobe

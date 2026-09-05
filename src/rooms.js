@@ -98,6 +98,7 @@ export class Room {
   // ---------- igralci ----------
 
   addPlayer({ name, emoji }) {
+    const late = this.phase !== 'lobby';
     if (this.players.size >= MAX_PLAYERS) throw new Error(`Soba je polna (največ ${MAX_PLAYERS} igralcev).`);
     const clean = String(name || '').trim().slice(0, 16);
     if (!clean) throw new Error('Vpiši svoje ime.');
@@ -120,6 +121,9 @@ export class Room {
       lastGain: null,
       stats: emptyStats(),
       joinedAt: Date.now(),
+      // Kdor pride sredi igre, začne z nič in to je na zaslonu tudi vidno.
+      late,
+      joinedAtIndex: late ? this.index : -1,
     };
     this.players.set(player.id, player);
     this.changed();
@@ -147,7 +151,7 @@ export class Room {
     const a = this.players.get(fromId);
     const b = this.players.get(targetId);
     if (!a || !b || a.id === b.id) throw new Error('Tega igralca ni.');
-    if (this.phase !== 'lobby') throw new Error('Pare lahko sestavite samo pred začetkom.');
+    if (this.phase === 'ended') throw new Error('Igra je končana.');
     if (a.partnerId || b.partnerId) throw new Error('Eden od vaju je že v paru.');
     if (b.pendingPartner === a.id) {
       a.partnerId = b.id;
@@ -161,6 +165,7 @@ export class Room {
   }
 
   unpair(id) {
+    if (this.phase !== 'lobby') throw new Error('Med igro parov ni mogoče razdruževati.');
     const a = this.players.get(id);
     if (!a) return;
     if (a.partnerId) {
@@ -175,7 +180,7 @@ export class Room {
 
   /** Voditelj neposredno poveže dva igralca (brez vzajemne potrditve). */
   pair(aId, bId) {
-    if (this.phase !== 'lobby') throw new Error('Pare lahko sestavite samo pred začetkom.');
+    if (this.phase === 'ended') throw new Error('Igra je končana.');
     const a = this.players.get(aId);
     const b = this.players.get(bId);
     if (!a || !b) throw new Error('Tega igralca ni.');
@@ -199,7 +204,7 @@ export class Room {
   }
 
   autoPair() {
-    if (this.phase !== 'lobby') throw new Error('Pare lahko sestavite samo pred začetkom.');
+    if (this.phase === 'ended') throw new Error('Igra je končana.');
     const singles = [...this.players.values()].filter((p) => !p.partnerId).sort((x, y) => x.joinedAt - y.joinedAt);
     while (singles.length >= 2) {
       const a = singles.shift();
@@ -292,9 +297,27 @@ export class Room {
     return this.index >= 0 ? this.questions[this.index] || null : null;
   }
 
-  /** Čas za trenutno vprašanje - opisna imajo svojega. */
+  /** Osnovni čas za vprašanje - opisna imajo svojega. */
   timeLimit(question = this.current) {
     return question ? timeLimitFor(question, this.settings) : this.settings.timeLimit;
+  }
+
+  /** Čas skupaj s tem, kar je voditelj dodal med vprašanjem. */
+  effectiveLimit(question = this.current) {
+    return this.timeLimit(question) + Math.round((this.extraMs || 0) / 1000);
+  }
+
+  /** Voditelj podaljša tekoče vprašanje - časovnik pri vseh se premakne. */
+  addTime(seconds) {
+    if (this.phase !== 'question') throw new Error('Čas je mogoče dodati samo med vprašanjem.');
+    const sec = Math.min(120, Math.max(5, Math.round(Number(seconds) || 15)));
+    this.extraMs = (this.extraMs || 0) + sec * 1000;
+
+    if (this.timer) clearTimeout(this.timer);
+    const left = (this.questionStartedAt + this.timeLimit() * 1000 + this.extraMs) - Date.now();
+    this.timer = setTimeout(() => this.reveal(), Math.max(500, left) + 500);
+    this.changed();
+    return sec;
   }
 
   start() {
@@ -319,9 +342,10 @@ export class Room {
     if (this.index + 1 >= this.questions.length) return this.end();
     this.index += 1;
     this.phase = 'question';
+    this.extraMs = 0;
     this.questionStartedAt = Date.now();
     this.submissions.set(this.index, new Map());
-    this.timer = setTimeout(() => this.reveal(), this.timeLimit() * 1000 + 500);
+    this.timer = setTimeout(() => this.reveal(), this.effectiveLimit() * 1000 + 500);
     this.changed();
   }
 
@@ -471,7 +495,7 @@ export class Room {
       this.phase = 'question'; // da spodnji tok teče enako kot pri ostalih
     }
 
-    const limit = this.timeLimit(q);
+    const limit = this.effectiveLimit(q);
     const perPlayer = [];
     for (const p of this.players.values()) {
       const sub = map.get(p.id) || null;
@@ -803,6 +827,7 @@ export class Room {
     room.phase = snap.phase === 'question' ? 'question' : snap.phase || 'lobby';
     if (room.phase === 'question') {
       room.questionStartedAt = Date.now();
+      room.extraMs = 0;
       room.timer = setTimeout(() => room.reveal(), room.timeLimit() * 1000 + 500);
     }
     if (room.phase === 'reveal') room.startAutoNext();
@@ -868,6 +893,7 @@ export class Room {
       players: [...this.players.values()].map((p) => ({
         id: p.id, name: p.name, emoji: p.emoji, score: p.score,
         partnerId: p.partnerId, pendingPartner: p.pendingPartner, connected: p.connected,
+        late: Boolean(p.late) && this.phase !== 'lobby',
       })),
       couples: this.coupleScores(),
       answered: this.phase === 'question' ? this.answeredCount() : 0,
@@ -879,7 +905,7 @@ export class Room {
         correct: this.phase === 'reveal' ? q.correct : undefined,
         explanation: this.phase === 'reveal' ? q.explanation : undefined,
       } : null,
-      timeLimit: this.timeLimit(),
+      timeLimit: this.effectiveLimit(),
       startedAt: this.questionStartedAt,
       auto: this.autoState(),
       reveal: this.phase === 'reveal' ? this.history[this.history.length - 1] : null,
@@ -912,7 +938,7 @@ export class Room {
         .map((x) => ({ id: x.id, name: x.name, emoji: x.emoji, paired: Boolean(x.partnerId), wantsMe: x.pendingPartner === p.id })) : null,
       questionCount: this.questions.length,
       index: this.index,
-      timeLimit: this.timeLimit(),
+      timeLimit: this.effectiveLimit(),
       startedAt: this.questionStartedAt,
       auto: this.autoState(),
       standings: this.coupleScores().slice(0, 5),
